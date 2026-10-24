@@ -60,6 +60,13 @@ class HavenMissionControl {
     this.waveformCtx = this.waveformCanvas ? this.waveformCanvas.getContext('2d') : null;
     this.uriInput = document.getElementById('uriInput');
     this.hiddenPicker = document.getElementById('hiddenTorrentPicker');
+    this.deleteModal = document.getElementById('deleteSwarmModal');
+    this.btnDeleteSelected = document.getElementById('btnDeleteSelected');
+    this.btnConfirmDelete = document.getElementById('btnConfirmDelete');
+    this.btnCancelDelete = document.getElementById('btnCancelDelete');
+    this.btnCloseDeleteModal = document.getElementById('btnCloseDeleteModal');
+    this.deleteSwarmTitle = document.getElementById('deleteSwarmTitle');
+    this.deleteSwarmPath = document.getElementById('deleteSwarmPath');
   }
 
   attachEvents() {
@@ -147,15 +154,42 @@ class HavenMissionControl {
 
     // Search Filter
     const searchInput = document.getElementById('searchInput');
-    searchInput.addEventListener('input', (e) => {
+    searchInput?.addEventListener('input', (e) => {
       this.searchQuery = e.target.value.toLowerCase().trim();
       this.renderTable();
     });
 
+    // Delete Modal Actions
+    this.btnDeleteSelected?.addEventListener('click', () => {
+      if (this.selectedId) {
+        this.promptDelete(this.selectedId);
+      } else if (this.swarms.length > 0) {
+        this.promptDelete(this.swarms[0].id);
+      }
+    });
+
+    this.btnConfirmDelete?.addEventListener('click', () => this.confirmDelete());
+    this.btnCancelDelete?.addEventListener('click', () => this.closeDeleteModal());
+    this.btnCloseDeleteModal?.addEventListener('click', () => this.closeDeleteModal());
+
+    document.querySelectorAll('input[name="deleteOption"]').forEach(r => {
+      r.addEventListener('change', (e) => {
+        document.querySelectorAll('.delete-option-card').forEach(c => c.classList.remove('active'));
+        e.target.closest('.delete-option-card')?.classList.add('active');
+      });
+    });
+
+    // Keyboard Delete / Backspace Shortcut
+    window.addEventListener('keydown', (e) => {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedId && !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) {
+        this.promptDelete(this.selectedId);
+      }
+    });
+
     // Window controls
-    document.getElementById('winMin').addEventListener('click', () => window.havenNative?.minimize?.());
-    document.getElementById('winMax').addEventListener('click', () => window.havenNative?.maximize?.());
-    document.getElementById('winClose').addEventListener('click', () => window.havenNative?.close?.());
+    document.getElementById('winMin')?.addEventListener('click', () => window.havenNative?.minimize?.());
+    document.getElementById('winMax')?.addEventListener('click', () => window.havenNative?.maximize?.());
+    document.getElementById('winClose')?.addEventListener('click', () => window.havenNative?.close?.());
   }
 
   getSelectedSwarm() {
@@ -257,7 +291,15 @@ class HavenMissionControl {
         <td class="col-eta ${etaClass}">
           ${s.eta}
         </td>
+        <td class="col-act">
+          <button class="btn-row-del" title="Delete swarm (Del)">✕</button>
+        </td>
       `;
+
+      tr.querySelector('.btn-row-del')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.promptDelete(s.id);
+      });
 
       tr.addEventListener('click', () => {
         this.selectedId = s.id;
@@ -667,6 +709,39 @@ class HavenMissionControl {
     this.saveSwarms();
     this.render();
     this.appendLog(`[BENCODE] Check-then-allocate validated. Info-Hash: ${hashHex.slice(0, 20)}...`);
+  }
+
+  promptDelete(swarmId) {
+    const s = this.swarms.find(item => item.id === swarmId);
+    if (!s) return;
+    this.pendingDeleteId = swarmId;
+    if (this.deleteSwarmTitle) this.deleteSwarmTitle.textContent = s.name;
+    if (this.deleteSwarmPath) this.deleteSwarmPath.textContent = (s.targetMount || 'F:\\Torrent\\Storage') + '\\' + s.name;
+    if (this.deleteModal) this.deleteModal.classList.remove('hidden');
+  }
+
+  closeDeleteModal() {
+    this.pendingDeleteId = null;
+    if (this.deleteModal) this.deleteModal.classList.add('hidden');
+  }
+
+  confirmDelete() {
+    if (!this.pendingDeleteId) return;
+    const id = this.pendingDeleteId;
+    const swarm = this.swarms.find(item => item.id === id);
+    const deleteFiles = document.querySelector('input[name="deleteOption"]:checked')?.value === 'delete';
+
+    this.swarms = this.swarms.filter(item => item.id !== id);
+    if (this.selectedId === id) {
+      this.selectedId = this.swarms.length > 0 ? this.swarms[0].id : null;
+    }
+
+    this.saveSwarms();
+    this.closeDeleteModal();
+    this.render();
+
+    const mode = deleteFiles ? 'and permanently deleted local disk files' : 'retaining local files on disk';
+    this.appendLog(`[PURGE] Swarm ${swarm ? swarm.name : id} disconnected and removed (${mode}).`);
   }
 
   escapeHtml(str) {

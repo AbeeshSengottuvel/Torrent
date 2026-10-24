@@ -74,7 +74,10 @@
       <button class="action-btn" id="btnPauseAll">
         <span>⏸</span> [PAUSE ALL]
       </button>
-      <button class="action-btn action-purge" id="btnPurge">
+      <button class="action-btn action-delete" id="btnDeleteSelected" title="Delete selected swarm (Del)">
+        <span>✕</span> [DELETE]
+      </button>
+      <button class="action-btn action-purge" id="btnPurge" title="Purge finished downloads">
         <span>🗑</span> [PURGE]
       </button>
 
@@ -193,6 +196,7 @@
                 <th class="col-speed">DOWN / UP</th>
                 <th class="col-peers">PEERS</th>
                 <th class="col-eta">ETA</th>
+                <th class="col-act text-center">ACT</th>
               </tr>
             </thead>
             <tbody id="swarmsTableBody">
@@ -384,6 +388,50 @@
 
   <!-- Hidden native file picker for .torrent files -->
   <input type="file" id="hiddenTorrentPicker" accept=".torrent" style="display: none;">
+
+  <!-- Modal: Remove Torrent Confirmation -->
+  <div id="deleteSwarmModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <span class="modal-icon text-danger">🗑</span>
+          <h2>REMOVE SWARM // SECURITY AUDIT</h2>
+        </div>
+        <button class="icon-btn-sm" id="btnCloseDeleteModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-intro">
+          Target payload: <strong id="deleteSwarmTitle" class="font-mono text-emerald">swarm-name.iso</strong>
+        </p>
+        <div class="delete-path-box">
+          <span class="meta-label">CANONICAL STORAGE PATH:</span>
+          <span class="meta-val font-mono" id="deleteSwarmPath">F:\Torrent\Storage\payload</span>
+        </div>
+
+        <div class="delete-options-list">
+          <label class="delete-option-card active" id="optKeepData">
+            <input type="radio" name="deleteOption" value="keep" checked>
+            <div class="delete-option-content">
+              <span class="delete-opt-title">DISCONNECT SWARM & RETAIN FILES ON DISK</span>
+              <span class="delete-opt-desc">Immediately terminates peer, tracker, and DHT connections. Your downloaded data remains safe on your local drive.</span>
+            </div>
+          </label>
+
+          <label class="delete-option-card danger-card" id="optDeleteData">
+            <input type="radio" name="deleteOption" value="delete">
+            <div class="delete-option-content">
+              <span class="delete-opt-title text-danger">DISCONNECT & PERMANENTLY PURGE DISK PAYLOAD</span>
+              <span class="delete-opt-desc">Breaks all network sockets and permanently deletes the downloaded files from storage.</span>
+            </div>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ctrl btn-inspect" id="btnCancelDelete">Cancel</button>
+        <button class="btn-ctrl btn-load" id="btnConfirmDelete">[CONFIRM REMOVAL]</button>
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

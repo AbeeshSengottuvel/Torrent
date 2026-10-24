@@ -1315,3 +1315,191 @@ body.mission-control-body {
   font-family: var(--font-mono);
 }
 
+/* ==========================================================================
+   8. DELETION & MODAL STYLES
+   ========================================================================== */
+.action-delete {
+  color: var(--text-muted);
+}
+.action-delete:hover {
+  color: var(--color-red);
+  border-color: var(--color-red-border);
+  background: var(--color-red-light);
+}
+
+.col-act {
+  width: 48px;
+  text-align: center;
+}
+
+.btn-row-del {
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border-light);
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.1s ease;
+}
+.btn-row-del:hover {
+  border-color: var(--color-red-border);
+  background: var(--color-red-light);
+  color: var(--color-red);
+}
+
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-backdrop.hidden {
+  display: none;
+}
+
+.modal-card {
+  background: #ffffff;
+  border: 1px solid var(--border-medium);
+  border-radius: 6px;
+  width: 90%;
+  max-width: 520px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-subtle);
+}
+
+.modal-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.modal-title-group h2 {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.icon-btn-sm {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+}
+.icon-btn-sm:hover {
+  background: var(--bg-highlight);
+  color: var(--text-main);
+}
+
+.modal-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-intro {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.delete-path-box {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  border-radius: 3px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.delete-options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.delete-option-card {
+  border: 1px solid var(--border-medium);
+  border-radius: 4px;
+  padding: 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  background: #ffffff;
+}
+.delete-option-card:hover {
+  background: var(--bg-subtle);
+}
+.delete-option-card.active {
+  border-color: #111827;
+  background: #f8fafc;
+}
+.delete-option-card.danger-card.active {
+  border-color: var(--color-red-border);
+  background: var(--color-red-light);
+}
+
+.delete-option-content {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.delete-opt-title {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+.delete-opt-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.modal-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  background: var(--bg-subtle);
+}
+
+
