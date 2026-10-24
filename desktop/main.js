@@ -1027,6 +1027,10 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
       wire.on('close', () => {
         // Wire closed
       });
+
+      wire.on('error', (_err) => {
+        // Silently consume peer socket resets (e.g., UTP_ECONNRESET)
+      });
     });
 
     let loggedFirstPiece = false;
