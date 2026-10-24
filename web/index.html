@@ -149,14 +149,15 @@
 
       <div class="sidebar-section">
         <div class="section-title">DIAGNOSTICS</div>
-        <nav class="nav-list">
           <button class="nav-item" id="navPeerGraph">
             <span class="nav-icon">🕸</span>
             <span class="nav-text">Peer Graph</span>
+            <span class="nav-badge-pill" id="badgePeerGraph">MESH</span>
           </button>
           <button class="nav-item" id="navThrottle">
             <span class="nav-icon">📶</span>
             <span class="nav-text">Traffic Throttle</span>
+            <span class="throttle-badge font-mono" id="sidebarThrottleBadge">UNLIMITED</span>
           </button>
         </nav>
       </div>
@@ -189,6 +190,27 @@
       
       <!-- TOP HALF: MASTER SWARM diagnostics TABLE -->
       <section class="table-section">
+        <!-- QUARANTINE SECURITY BANNER (SAFEPATH ACTIVE ISOLATION) -->
+        <div id="quarantineBanner" class="quarantine-banner hidden">
+          <div class="q-banner-left">
+            <div class="q-banner-shield">🛡</div>
+            <div class="q-banner-info">
+              <div class="q-banner-title font-mono" id="qBannerTitle">SAFEPATH ACTIVE ISOLATION // 0 SWARMS QUARANTINED</div>
+              <div class="q-banner-desc" id="qBannerDesc">
+                Zero-Trust SafePath detected dangerous binary payloads or quarantined swarm. Disk writes blocked to protect host system.
+              </div>
+            </div>
+          </div>
+          <div class="q-banner-actions">
+            <button class="btn-ctrl btn-q-purge" id="btnPurgeQuarantined" title="Permanently delete all quarantined swarms and remove from session">
+              <span>🗑</span> [PURGE & DELETE]
+            </button>
+            <button class="btn-ctrl btn-q-release" id="btnReleaseQuarantined" title="Trust and release selected quarantined swarm to resume downloads">
+              <span>🔓</span> [TRUST & RELEASE TO DOWNLOAD]
+            </button>
+          </div>
+        </div>
+
         <div class="table-scroll-container">
           <table class="swarms-table" id="swarmsTable">
             <thead>
@@ -273,32 +295,50 @@
         </div>
 
         <!-- COLUMN 2: SWARM diagnostics & MESH GRAPH -->
-        <div class="diagnostics-column col-mesh">
+        <div class="diagnostics-column col-mesh" id="panelColMesh">
           <div class="col-header">
             <div class="header-tag">
               <span class="header-icon">📈</span>
-              <span class="header-title">SWARM diagnostics & MESH GRAPH</span>
+              <span class="header-title" id="meshViewTitle">SWARM DIAGNOSTICS & MESH GRAPH</span>
             </div>
-            <span class="badge-tag">T=1s POLL</span>
+            <div class="mesh-header-tools">
+              <button class="tab-view-btn" id="btnTabWaveform" title="Show Throughput Waveform">WAVEFORM</button>
+              <button class="tab-view-btn active" id="btnTabMesh" title="Show Live Swarm Topology & Radar">PEER GRAPH</button>
+            </div>
           </div>
 
           <div class="mesh-stats-row">
             <div class="mesh-stat">
               <span class="meta-label">DOWNSTREAM</span>
-              <span class="meta-stat-val font-mono" id="statDown">8.4 MB/s</span>
+              <span class="meta-stat-val font-mono" id="statDown">0.0 KB/s</span>
             </div>
             <div class="mesh-stat">
               <span class="meta-label">UPSTREAM</span>
-              <span class="meta-stat-val font-mono" id="statUp">1.2 MB/s</span>
+              <span class="meta-stat-val font-mono" id="statUp">0.0 KB/s</span>
             </div>
             <div class="mesh-stat">
               <span class="meta-label">DIRECT I/O</span>
-              <span class="meta-stat-val font-mono" id="statIO">14.8 MB/s</span>
+              <span class="meta-stat-val font-mono" id="statIO">0.0 MB/s</span>
             </div>
           </div>
 
-          <!-- WAVEFORM GRAPH -->
-          <div class="waveform-card">
+          <!-- INTERACTIVE PEER MESH TOPOLOGY & RADAR CANVAS (PEER GRAPH VIEW) -->
+          <div class="peer-mesh-card" id="peerMeshCard">
+            <div class="mesh-canvas-header">
+              <span class="mesh-canvas-title" id="meshCanvasTitle">SWARM TOPOLOGY & WIRE INSPECTOR // LIVE MESH</span>
+              <div class="mesh-canvas-legend font-mono" id="meshCanvasLegend">
+                <span class="legend-haven">● HAVEN ENGINE</span>
+                <span class="legend-peer">● PEER WIRE</span>
+                <span class="legend-wire" id="meshWireCount">0 PEERS</span>
+              </div>
+            </div>
+            <div class="mesh-canvas-wrap">
+              <canvas id="peerMeshCanvas" width="460" height="150" class="peer-mesh-canvas"></canvas>
+            </div>
+          </div>
+
+          <!-- WAVEFORM GRAPH (TOGGLEABLE) -->
+          <div class="waveform-card hidden" id="waveformCard">
             <div class="waveform-header">
               <span class="waveform-title">THROUGHPUT WAVEFORM // REAL-TIME 60S</span>
               <div class="waveform-legend">
@@ -646,10 +686,111 @@
       <span class="menu-label">Copy Info-Hash (BTIH)</span>
     </button>
     <div class="menu-divider"></div>
+    <button class="menu-item menu-item-quarantine" id="menuActionQuarantine" type="button">
+      <span class="menu-icon">🛡</span>
+      <span class="menu-label">Quarantine Swarm</span>
+    </button>
+    <button class="menu-item menu-item-release" id="menuActionReleaseQuarantine" type="button">
+      <span class="menu-icon">🔓</span>
+      <span class="menu-label">Trust & Release to Download</span>
+    </button>
+    <div class="menu-divider"></div>
     <button class="menu-item menu-item-danger" id="menuActionDelete" type="button">
       <span class="menu-icon">🗑</span>
       <span class="menu-label">Remove / Delete...</span>
     </button>
+  </div>
+
+  <!-- Modal: Traffic Throttle & QoS Control Panel -->
+  <div id="trafficThrottleModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <span class="modal-icon text-cyan">📶</span>
+          <h2>TRAFFIC THROTTLE & QOS CONTROL PANEL</h2>
+        </div>
+        <button class="icon-btn-sm" id="btnCloseThrottleModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-intro">
+          Govern WebTorrent client bandwidth consumption and wire connections at kernel socket layer.
+        </p>
+
+        <!-- Presets Row -->
+        <div class="throttle-presets-group">
+          <span class="meta-label">QOS BANDWIDTH PRESETS:</span>
+          <div class="preset-buttons">
+            <button class="btn-preset active" data-preset="unlimited" id="presetUnlimited">
+              <span class="preset-name">[UNLIMITED]</span>
+              <span class="preset-desc">Full line rate (Max speed)</span>
+            </button>
+            <button class="btn-preset" data-preset="gaming" id="presetGaming">
+              <span class="preset-name">[GAMING / LOW-LATENCY]</span>
+              <span class="preset-desc">1.0 MB/s Down • 100 KB/s Up (25 Wires)</span>
+            </button>
+            <button class="btn-preset" data-preset="stealth" id="presetStealth">
+              <span class="preset-name">[STEALTH / BACKGROUND]</span>
+              <span class="preset-desc">250 KB/s Down • 50 KB/s Up (15 Wires)</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Custom Sliders -->
+        <div class="throttle-controls">
+          <div class="throttle-field">
+            <div class="field-label-row">
+              <label for="throttleDownSlider">MAX DOWNLOAD RATE</label>
+              <span class="field-val font-mono" id="throttleDownVal">UNLIMITED</span>
+            </div>
+            <input type="range" id="throttleDownSlider" min="0" max="25000" step="250" value="0">
+            <div class="range-marks font-mono">
+              <span>0 (Unlimited)</span>
+              <span>5 MB/s</span>
+              <span>15 MB/s</span>
+              <span>25 MB/s</span>
+            </div>
+          </div>
+
+          <div class="throttle-field">
+            <div class="field-label-row">
+              <label for="throttleUpSlider">MAX UPLOAD RATE</label>
+              <span class="field-val font-mono" id="throttleUpVal">UNLIMITED</span>
+            </div>
+            <input type="range" id="throttleUpSlider" min="0" max="10000" step="100" value="0">
+            <div class="range-marks font-mono">
+              <span>0 (Unlimited)</span>
+              <span>2 MB/s</span>
+              <span>5 MB/s</span>
+              <span>10 MB/s</span>
+            </div>
+          </div>
+
+          <div class="throttle-field">
+            <div class="field-label-row">
+              <label for="throttleWiresSlider">MAX PEER WIRES (SOCKET CONNECTIONS)</label>
+              <span class="field-val font-mono" id="throttleWiresVal">60 WIRES</span>
+            </div>
+            <input type="range" id="throttleWiresSlider" min="5" max="150" step="5" value="60">
+            <div class="range-marks font-mono">
+              <span>5 Wires</span>
+              <span>60 (Default)</span>
+              <span>150 Wires</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="throttle-status-box font-mono" id="throttleStatusBox">
+          <span class="text-emerald">● STATUS:</span> Bandwidth cap active: <span id="throttleActiveSummary">UNLIMITED (Full line rate)</span>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn-ctrl btn-inspect" id="btnResetThrottle">Reset to Unlimited</button>
+        <button class="btn-ctrl btn-load btn-primary-start" id="btnApplyThrottle">
+          <span>[APPLY QOS LIMITS]</span>
+        </button>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>

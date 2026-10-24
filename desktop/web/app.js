@@ -18,6 +18,9 @@ class HavenMissionControl {
     this.initElements();
     this.attachEvents();
     this.initEngineEvents();
+    this.initTrafficThrottleControls();
+    this.fetchBackendThrottle();
+    this.startPeerMeshAnimationLoop();
     this.render();
     this.startdiagnosticsTicker();
     this.restoreActiveDownloads();
@@ -141,6 +144,43 @@ class HavenMissionControl {
     // Drag and Drop Overlay
     this.dragDropOverlay = document.getElementById('dragDropOverlay');
 
+    // Quarantine Security Banner Elements
+    this.quarantineBanner = document.getElementById('quarantineBanner');
+    this.qBannerTitle = document.getElementById('qBannerTitle');
+    this.qBannerDesc = document.getElementById('qBannerDesc');
+    this.btnPurgeQuarantined = document.getElementById('btnPurgeQuarantined');
+    this.btnReleaseQuarantined = document.getElementById('btnReleaseQuarantined');
+
+    // Peer Graph & Topology Canvas Elements
+    this.navPeerGraph = document.getElementById('navPeerGraph');
+    this.peerMeshCanvas = document.getElementById('peerMeshCanvas');
+    this.peerMeshCtx = this.peerMeshCanvas ? this.peerMeshCanvas.getContext('2d') : null;
+    this.btnTabWaveform = document.getElementById('btnTabWaveform');
+    this.btnTabMesh = document.getElementById('btnTabMesh');
+    this.peerMeshCard = document.getElementById('peerMeshCard');
+    this.waveformCard = document.getElementById('waveformCard');
+    this.meshWireCount = document.getElementById('meshWireCount');
+    this.radarAngle = 0;
+    this.meshViewMode = 'mesh';
+    this.meshParticles = [];
+
+    // Traffic Throttle & QoS Elements
+    this.navThrottle = document.getElementById('navThrottle');
+    this.btnThrottle = document.getElementById('btnThrottle');
+    this.trafficThrottleModal = document.getElementById('trafficThrottleModal');
+    this.btnCloseThrottleModal = document.getElementById('btnCloseThrottleModal');
+    this.btnApplyThrottle = document.getElementById('btnApplyThrottle');
+    this.btnResetThrottle = document.getElementById('btnResetThrottle');
+    this.throttleDownSlider = document.getElementById('throttleDownSlider');
+    this.throttleUpSlider = document.getElementById('throttleUpSlider');
+    this.throttleWiresSlider = document.getElementById('throttleWiresSlider');
+    this.throttleDownVal = document.getElementById('throttleDownVal');
+    this.throttleUpVal = document.getElementById('throttleUpVal');
+    this.throttleWiresVal = document.getElementById('throttleWiresVal');
+    this.throttleActiveSummary = document.getElementById('throttleActiveSummary');
+    this.sidebarThrottleBadge = document.getElementById('sidebarThrottleBadge');
+    this.currentThrottleConfig = { downBytesSec: -1, upBytesSec: -1, maxConns: 60, preset: 'unlimited' };
+
     // Zoom Controls
     this.btnZoomIn = document.getElementById('btnZoomIn');
     this.btnZoomOut = document.getElementById('btnZoomOut');
@@ -262,6 +302,55 @@ class HavenMissionControl {
         this.currentFilter = btn.dataset.filter || 'all';
         this.renderTable();
       });
+    });
+
+    // Wire Up Quarantined Banner Action Buttons
+    this.btnPurgeQuarantined?.addEventListener('click', () => {
+      this.purgeAllQuarantined();
+    });
+
+    this.btnReleaseQuarantined?.addEventListener('click', () => {
+      const s = this.getSelectedSwarm();
+      if (s && s.state === 'quarantined') {
+        this.releaseQuarantine(s);
+      } else {
+        const q = this.swarms.find(item => item.state === 'quarantined');
+        if (q) this.releaseQuarantine(q);
+      }
+    });
+
+    // Wire Up Peer Graph Navigation Item
+    this.navPeerGraph?.addEventListener('click', () => {
+      document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+      this.navPeerGraph.classList.add('active');
+      this.switchMeshView('mesh');
+      const panel = document.getElementById('panelColMesh');
+      if (panel) {
+        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+      this.appendLog('[DIAGNOSTICS] Focused Swarm Diagnostics & Interactive Peer Mesh Graph.');
+    });
+
+    // Wire Up Col 2 View Tabs
+    this.btnTabWaveform?.addEventListener('click', () => {
+      this.switchMeshView('waveform');
+    });
+
+    this.btnTabMesh?.addEventListener('click', () => {
+      this.switchMeshView('mesh');
+    });
+
+    // Wire Up Traffic Throttle Navigation Item & Header Icon
+    this.navThrottle?.addEventListener('click', () => {
+      this.openTrafficThrottleModal();
+    });
+
+    this.btnThrottle?.addEventListener('click', () => {
+      this.openTrafficThrottleModal();
+    });
+
+    this.btnCloseThrottleModal?.addEventListener('click', () => {
+      this.closeTrafficThrottleModal();
     });
 
     // Search Filter
@@ -480,6 +569,24 @@ class HavenMissionControl {
         this.promptDelete(s.id);
       }
     });
+
+    // Quarantine Swarm Action
+    document.getElementById('menuActionQuarantine')?.addEventListener('click', () => {
+      const s = this.contextSwarm;
+      menu?.classList.add('hidden');
+      if (s) {
+        this.quarantineSwarm(s);
+      }
+    });
+
+    // Trust & Release Quarantine Action
+    document.getElementById('menuActionReleaseQuarantine')?.addEventListener('click', () => {
+      const s = this.contextSwarm;
+      menu?.classList.add('hidden');
+      if (s) {
+        this.releaseQuarantine(s);
+      }
+    });
   }
 
   openSwarmContextMenu(x, y, swarm) {
@@ -492,18 +599,30 @@ class HavenMissionControl {
 
     const resumeBtn = document.getElementById('menuActionResume');
     const pauseBtn = document.getElementById('menuActionPause');
-    if (swarm.state === 'paused' || swarm.state === 'halted') {
+    const quarantineBtn = document.getElementById('menuActionQuarantine');
+    const releaseBtn = document.getElementById('menuActionReleaseQuarantine');
+
+    if (swarm.state === 'quarantined') {
+      if (resumeBtn) resumeBtn.style.display = 'none';
+      if (pauseBtn) pauseBtn.style.display = 'none';
+      if (quarantineBtn) quarantineBtn.style.display = 'none';
+      if (releaseBtn) releaseBtn.style.display = 'flex';
+    } else if (swarm.state === 'paused' || swarm.state === 'halted') {
       if (resumeBtn) resumeBtn.style.display = 'flex';
       if (pauseBtn) pauseBtn.style.display = 'none';
+      if (quarantineBtn) quarantineBtn.style.display = 'flex';
+      if (releaseBtn) releaseBtn.style.display = 'none';
     } else {
       if (resumeBtn) resumeBtn.style.display = 'none';
       if (pauseBtn) pauseBtn.style.display = 'flex';
+      if (quarantineBtn) quarantineBtn.style.display = 'flex';
+      if (releaseBtn) releaseBtn.style.display = 'none';
     }
 
     menu.classList.remove('hidden');
 
     const menuW = menu.offsetWidth || 220;
-    const menuH = menu.offsetHeight || 280;
+    const menuH = menu.offsetHeight || 300;
     const posX = Math.max(10, Math.min(window.innerWidth - menuW - 10, x));
     const posY = Math.max(10, Math.min(window.innerHeight - menuH - 10, y));
 
@@ -971,7 +1090,12 @@ class HavenMissionControl {
       }
 
       const dn = document.getElementById('modalMagnetName')?.value.trim() || pkg.name;
-      const isRisky = /\.(exe|bat|cmd|ps1|iso|vbs)$/i.test(dn);
+      const hasExecFile = pkg.files && pkg.files.some(f => f.isRisk);
+      const firstExecFile = pkg.files ? pkg.files.find(f => f.isRisk) : null;
+      const isRisky = hasExecFile || /\.(exe|msi|bat|cmd|ps1|vbs|scr|hta|com)$/i.test(dn);
+      const quarantineReason = firstExecFile 
+        ? `Executable payload detected: ${firstExecFile.name}` 
+        : (isRisky ? `Executable payload detected: ${dn}` : null);
 
       const deselectedFiles = pkg.files
         .filter(f => !f.selected || f.isRisk || f.locked)
@@ -993,7 +1117,7 @@ class HavenMissionControl {
         progressSub: `0.0 MB of ${pkg.sizeFormatted}`,
         progressState: isRisky ? 'halted' : (autoStart ? 'active' : 'paused'),
         securityBadge: isRisky ? 'status-exec-blocked' : 'status-safepath-ok',
-        securityText: isRisky ? '[EXEC RISK]' : '[SAFEPATH OK]',
+        securityText: isRisky ? '[QUARANTINED]' : '[SAFEPATH OK]',
         downSpeed: '0.0 KB/s',
         upSpeed: '0.0 KB/s',
         rawDownSpeed: 0,
@@ -1002,6 +1126,7 @@ class HavenMissionControl {
         peersLeech: '0',
         eta: autoStart ? 'Connecting to peers...' : 'Paused',
         state: isRisky ? 'quarantined' : (autoStart ? 'downloading' : 'paused'),
+        quarantineReason: quarantineReason,
         targetMount: targetMount,
         freeVolume: 'Calculating...',
         volumeType: 'Disk',
@@ -1012,7 +1137,7 @@ class HavenMissionControl {
         quarantine: isRisky ? {
           active: true,
           title: `QUARANTINE ACTIVE // ${dn.toUpperCase()}`,
-          desc: 'Potentially dangerous payload isolated. SafePath gate enforced.'
+          desc: quarantineReason || 'Potentially dangerous payload isolated. SafePath gate enforced.'
         } : null,
         peersList: [],
         bitfield: { total: pkg.pieces || 360, verified: 0, inFlight: 0 },
@@ -1059,7 +1184,8 @@ class HavenMissionControl {
     }
 
     const dn = this.modalMagnetName?.value.trim() || parsed.dn || 'magnet-payload';
-    const isRisky = /\.(exe|bat|cmd|ps1|iso|vbs)$/i.test(dn);
+    const isRisky = /\.(exe|msi|bat|cmd|ps1|vbs|scr|hta|com)$/i.test(dn);
+    const quarantineReason = isRisky ? `Executable payload detected: ${dn}` : null;
 
     const newSwarm = {
       id: 't-' + Date.now(),
@@ -1076,7 +1202,7 @@ class HavenMissionControl {
       progressSub: 'Resolving metadata...',
       progressState: isRisky ? 'halted' : (autoStart ? 'active' : 'paused'),
       securityBadge: isRisky ? 'status-exec-blocked' : 'status-safepath-ok',
-      securityText: isRisky ? '[EXEC RISK]' : '[SAFEPATH OK]',
+      securityText: isRisky ? '[QUARANTINED]' : '[SAFEPATH OK]',
       downSpeed: '0.0 KB/s',
       upSpeed: '0.0 KB/s',
       rawDownSpeed: 0,
@@ -1085,6 +1211,7 @@ class HavenMissionControl {
       peersLeech: '0',
       eta: autoStart ? 'Connecting to peers...' : 'Paused',
       state: isRisky ? 'quarantined' : (autoStart ? 'downloading' : 'paused'),
+      quarantineReason: quarantineReason,
       targetMount: targetMount,
       freeVolume: 'Calculating...',
       volumeType: 'Disk',
@@ -1097,7 +1224,7 @@ class HavenMissionControl {
       quarantine: isRisky ? {
         active: true,
         title: `QUARANTINE ACTIVE // ${dn.toUpperCase()}`,
-        desc: 'Executable or script extension detected. File is locked from direct disk flush until overridden.'
+        desc: quarantineReason || 'Executable or script extension detected. File is locked from direct disk flush until overridden.'
       } : null,
       peersList: [],
       bitfield: { total: 512, verified: 0, inFlight: 0 },
@@ -1149,6 +1276,21 @@ class HavenMissionControl {
   }
 
   renderTable() {
+    const quarantinedSwarms = this.swarms.filter(s => s.state === 'quarantined');
+    if (this.currentFilter === 'quarantined') {
+      this.quarantineBanner?.classList.remove('hidden');
+      if (this.qBannerTitle) {
+        this.qBannerTitle.textContent = `SAFEPATH ACTIVE ISOLATION // ${quarantinedSwarms.length} SWARMS QUARANTINED`;
+      }
+      if (this.qBannerDesc) {
+        this.qBannerDesc.textContent = quarantinedSwarms.length > 0
+          ? quarantinedSwarms.map(q => q.quarantineReason || `${q.name} (Executable risk)`).join(' | ')
+          : 'Zero swarms currently quarantined. All active swarms verified by SafePath.';
+      }
+    } else {
+      this.quarantineBanner?.classList.add('hidden');
+    }
+
     const filtered = this.swarms.filter(s => {
       if (this.currentFilter === 'downloading' && s.state !== 'downloading') return false;
       if (this.currentFilter === 'seeding' && s.state !== 'seeding') return false;
@@ -1856,7 +1998,20 @@ class HavenMissionControl {
           s.name = data.name || s.name;
           s.sizeBytes = data.totalSize || s.sizeBytes;
           s.sizeFormatted = this.formatBytes(s.sizeBytes);
+          if (data.execRiskDetected) {
+            s.state = 'quarantined';
+            s.quarantineReason = data.quarantineReason || 'Executable payload detected in metadata';
+            s.securityBadge = 'status-exec-blocked';
+            s.securityText = '[QUARANTINED]';
+            s.quarantine = {
+              active: true,
+              title: `QUARANTINE ACTIVE // ${s.name.toUpperCase()}`,
+              desc: s.quarantineReason
+            };
+            this.appendLog(`[SAFEPATH/GATE] Metadata inspection: High-risk payload detected! Quarantined swarm: ${s.name}`);
+          }
           this.appendLog(`[METADATA] BitTorrent swarm metadata received: ${s.name} (${s.sizeFormatted})`);
+          this.saveSwarms();
           this.render();
         }
       });
@@ -2030,6 +2185,504 @@ class HavenMissionControl {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
+  }
+
+  // =========================================================================
+  // SAFEPATH QUARANTINE ENGINE
+  // =========================================================================
+  async quarantineSwarm(s) {
+    if (!s) return;
+    s.state = 'quarantined';
+    s.securityBadge = 'status-exec-blocked';
+    s.securityText = '[QUARANTINED]';
+    s.quarantineReason = s.quarantineReason || `Payload isolated by operator: SafePath lock active`;
+    s.quarantine = {
+      active: true,
+      title: `QUARANTINE ACTIVE // ${s.name.toUpperCase()}`,
+      desc: s.quarantineReason
+    };
+    s.downSpeed = '0.0 KB/s';
+    s.upSpeed = '0.0 KB/s';
+    s.rawDownSpeed = 0;
+    s.rawUpSpeed = 0;
+    s.eta = 'Quarantined';
+    if (window.havenNative?.quarantineTorrent) {
+      await window.havenNative.quarantineTorrent(s.id);
+    } else if (window.havenNative?.pauseTorrent) {
+      await window.havenNative.pauseTorrent(s.id);
+    }
+    this.appendLog(`[SAFEPATH/GATE] Swarm isolated to Quarantine: ${s.name} (${s.quarantineReason})`);
+    this.saveSwarms();
+    this.render();
+  }
+
+  async releaseQuarantine(s) {
+    if (!s) return;
+    s.state = s.progressPct >= 100 ? 'seeding' : 'downloading';
+    s.securityBadge = 'status-safepath-ok';
+    s.securityText = '[SAFEPATH OK]';
+    s.quarantine = null;
+    s.quarantineReason = null;
+    s.eta = s.state === 'seeding' ? 'Seeding' : 'Connecting to peers...';
+    if (window.havenNative?.releaseQuarantine) {
+      await window.havenNative.releaseQuarantine(s.id);
+    }
+    this.startRealTorrent(s);
+    this.appendLog(`[SAFEPATH/TRUST] Swarm released from quarantine by operator: ${s.name}. Resuming secure downloads.`);
+    this.saveSwarms();
+    this.render();
+  }
+
+  purgeAllQuarantined() {
+    const quarantined = this.swarms.filter(s => s.state === 'quarantined');
+    if (quarantined.length === 0) {
+      alert('No swarms currently in Quarantine.');
+      return;
+    }
+    if (confirm(`Permanently purge and delete all ${quarantined.length} quarantined swarms?`)) {
+      quarantined.forEach(s => {
+        if (window.havenNative?.deleteTorrent) {
+          window.havenNative.deleteTorrent({ id: s.id, deleteFiles: true, targetDir: s.targetMount || this.downloadDir, name: s.name });
+        }
+      });
+      this.swarms = this.swarms.filter(s => s.state !== 'quarantined');
+      if (this.selectedId && !this.swarms.some(s => s.id === this.selectedId)) {
+        this.selectedId = this.swarms.length > 0 ? this.swarms[0].id : null;
+      }
+      this.saveSwarms();
+      this.render();
+      this.appendLog(`[SECURITY] Purged ${quarantined.length} quarantined swarms.`);
+    }
+  }
+
+  // =========================================================================
+  // TRAFFIC THROTTLE & QOS CONTROL ENGINE
+  // =========================================================================
+  initTrafficThrottleControls() {
+    // Preset buttons
+    const presets = document.querySelectorAll('.btn-preset');
+    presets.forEach(btn => {
+      btn.addEventListener('click', () => {
+        presets.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const preset = btn.dataset.preset;
+        this.applyPresetValues(preset);
+      });
+    });
+
+    // Slider inputs
+    this.throttleDownSlider?.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value, 10);
+      if (this.throttleDownVal) {
+        this.throttleDownVal.textContent = val === 0 ? 'UNLIMITED' : `${(val / 1024).toFixed(1)} MB/s`;
+      }
+      document.querySelectorAll('.btn-preset').forEach(b => b.classList.remove('active'));
+      this.updateThrottleSummary();
+    });
+
+    this.throttleUpSlider?.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value, 10);
+      if (this.throttleUpVal) {
+        this.throttleUpVal.textContent = val === 0 ? 'UNLIMITED' : `${val >= 1024 ? (val / 1024).toFixed(1) + ' MB/s' : val + ' KB/s'}`;
+      }
+      document.querySelectorAll('.btn-preset').forEach(b => b.classList.remove('active'));
+      this.updateThrottleSummary();
+    });
+
+    this.throttleWiresSlider?.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value, 10);
+      if (this.throttleWiresVal) {
+        this.throttleWiresVal.textContent = `${val} WIRES`;
+      }
+      this.updateThrottleSummary();
+    });
+
+    this.btnApplyThrottle?.addEventListener('click', async () => {
+      await this.submitThrottleConfig();
+    });
+
+    this.btnResetThrottle?.addEventListener('click', async () => {
+      this.applyPresetValues('unlimited');
+      await this.submitThrottleConfig('unlimited');
+    });
+  }
+
+  applyPresetValues(preset) {
+    if (preset === 'unlimited') {
+      if (this.throttleDownSlider) this.throttleDownSlider.value = 0;
+      if (this.throttleUpSlider) this.throttleUpSlider.value = 0;
+      if (this.throttleWiresSlider) this.throttleWiresSlider.value = 60;
+      if (this.throttleDownVal) this.throttleDownVal.textContent = 'UNLIMITED';
+      if (this.throttleUpVal) this.throttleUpVal.textContent = 'UNLIMITED';
+      if (this.throttleWiresVal) this.throttleWiresVal.textContent = '60 WIRES';
+    } else if (preset === 'gaming') {
+      if (this.throttleDownSlider) this.throttleDownSlider.value = 1024;
+      if (this.throttleUpSlider) this.throttleUpSlider.value = 100;
+      if (this.throttleWiresSlider) this.throttleWiresSlider.value = 25;
+      if (this.throttleDownVal) this.throttleDownVal.textContent = '1.0 MB/s';
+      if (this.throttleUpVal) this.throttleUpVal.textContent = '100 KB/s';
+      if (this.throttleWiresVal) this.throttleWiresVal.textContent = '25 WIRES';
+    } else if (preset === 'stealth') {
+      if (this.throttleDownSlider) this.throttleDownSlider.value = 250;
+      if (this.throttleUpSlider) this.throttleUpSlider.value = 50;
+      if (this.throttleWiresSlider) this.throttleWiresSlider.value = 15;
+      if (this.throttleDownVal) this.throttleDownVal.textContent = '250 KB/s';
+      if (this.throttleUpVal) this.throttleUpVal.textContent = '50 KB/s';
+      if (this.throttleWiresVal) this.throttleWiresVal.textContent = '15 WIRES';
+    }
+    this.updateThrottleSummary();
+  }
+
+  updateThrottleSummary() {
+    const downVal = this.throttleDownVal?.textContent || 'UNLIMITED';
+    const upVal = this.throttleUpVal?.textContent || 'UNLIMITED';
+    const wiresVal = this.throttleWiresVal?.textContent || '60 WIRES';
+    if (this.throttleActiveSummary) {
+      this.throttleActiveSummary.textContent = `DOWN=${downVal} | UP=${upVal} | MAX=${wiresVal}`;
+    }
+  }
+
+  async submitThrottleConfig(forcePreset = null) {
+    const downKB = parseInt(this.throttleDownSlider?.value || '0', 10);
+    const upKB = parseInt(this.throttleUpSlider?.value || '0', 10);
+    const maxConns = parseInt(this.throttleWiresSlider?.value || '60', 10);
+
+    const activePresetBtn = document.querySelector('.btn-preset.active');
+    const preset = forcePreset || (activePresetBtn?.dataset.preset || (downKB === 0 && upKB === 0 ? 'unlimited' : 'custom'));
+
+    const downBytesSec = downKB > 0 ? downKB * 1024 : -1;
+    const upBytesSec = upKB > 0 ? upKB * 1024 : -1;
+
+    const payload = { downBytesSec, upBytesSec, maxConns, preset };
+
+    if (window.havenNative?.setTrafficThrottle) {
+      try {
+        const res = await window.havenNative.setTrafficThrottle(payload);
+        if (res?.config) {
+          this.currentThrottleConfig = res.config;
+          this.updateThrottleUI(res.config);
+          this.appendLog(`[QOS/THROTTLE] Bandwidth limiter engaged [${preset.toUpperCase()}].`);
+        }
+      } catch (err) {
+        this.appendLog(`[QOS ERROR] ${err.message}`);
+      }
+    }
+    this.closeTrafficThrottleModal();
+  }
+
+  async fetchBackendThrottle() {
+    if (window.havenNative?.getTrafficThrottle) {
+      try {
+        const res = await window.havenNative.getTrafficThrottle();
+        if (res?.config) {
+          this.currentThrottleConfig = res.config;
+          this.updateThrottleUI(res.config);
+        }
+      } catch (_) {}
+    }
+  }
+
+  updateThrottleUI(cfg) {
+    if (!cfg) return;
+    const isCapped = cfg.downBytesSec > 0 || cfg.upBytesSec > 0;
+    if (this.sidebarThrottleBadge) {
+      if (!isCapped) {
+        this.sidebarThrottleBadge.textContent = 'UNLIMITED';
+        this.sidebarThrottleBadge.classList.remove('badge-capped');
+      } else {
+        const downStr = cfg.downBytesSec > 0 ? `${(cfg.downBytesSec / (1024 * 1024)).toFixed(1)}M` : 'MAX';
+        this.sidebarThrottleBadge.textContent = `CAP: ${downStr}`;
+        this.sidebarThrottleBadge.classList.add('badge-capped');
+      }
+    }
+    if (this.btnThrottle) {
+      if (isCapped) {
+        this.btnThrottle.classList.add('text-danger');
+        this.btnThrottle.title = `Bandwidth Governor Active [DOWN: ${this.formatSpeed(cfg.downBytesSec)}]`;
+      } else {
+        this.btnThrottle.classList.remove('text-danger');
+        this.btnThrottle.title = 'Bandwidth Governor (Unlimited)';
+      }
+    }
+  }
+
+  openTrafficThrottleModal() {
+    if (!this.trafficThrottleModal) return;
+    const cfg = this.currentThrottleConfig || { downBytesSec: -1, upBytesSec: -1, maxConns: 60, preset: 'unlimited' };
+    const downKB = cfg.downBytesSec > 0 ? Math.round(cfg.downBytesSec / 1024) : 0;
+    const upKB = cfg.upBytesSec > 0 ? Math.round(cfg.upBytesSec / 1024) : 0;
+    const maxConns = cfg.maxConns || 60;
+
+    if (this.throttleDownSlider) this.throttleDownSlider.value = downKB;
+    if (this.throttleUpSlider) this.throttleUpSlider.value = upKB;
+    if (this.throttleWiresSlider) this.throttleWiresSlider.value = maxConns;
+
+    if (this.throttleDownVal) this.throttleDownVal.textContent = downKB === 0 ? 'UNLIMITED' : `${(downKB / 1024).toFixed(1)} MB/s`;
+    if (this.throttleUpVal) this.throttleUpVal.textContent = upKB === 0 ? 'UNLIMITED' : `${upKB >= 1024 ? (upKB / 1024).toFixed(1) + ' MB/s' : upKB + ' KB/s'}`;
+    if (this.throttleWiresVal) this.throttleWiresVal.textContent = `${maxConns} WIRES`;
+
+    document.querySelectorAll('.btn-preset').forEach(b => {
+      b.classList.toggle('active', b.dataset.preset === cfg.preset);
+    });
+
+    this.updateThrottleSummary();
+    this.trafficThrottleModal.classList.remove('hidden');
+  }
+
+  closeTrafficThrottleModal() {
+    if (this.trafficThrottleModal) this.trafficThrottleModal.classList.add('hidden');
+  }
+
+  // =========================================================================
+  // INTERACTIVE PEER MESH TOPOLOGY & RADAR GRAPH ENGINE
+  // =========================================================================
+  switchMeshView(mode) {
+    this.meshViewMode = mode;
+    if (mode === 'mesh') {
+      this.btnTabMesh?.classList.add('active');
+      this.btnTabWaveform?.classList.remove('active');
+      this.peerMeshCard?.classList.remove('hidden');
+      this.waveformCard?.classList.add('hidden');
+    } else {
+      this.btnTabWaveform?.classList.add('active');
+      this.btnTabMesh?.classList.remove('active');
+      this.waveformCard?.classList.remove('hidden');
+      this.peerMeshCard?.classList.add('hidden');
+      this.drawWaveform();
+    }
+  }
+
+  startPeerMeshAnimationLoop() {
+    let lastTime = performance.now();
+    const loop = (time) => {
+      const dt = Math.min(0.1, (time - lastTime) / 1000);
+      lastTime = time;
+      if (this.meshViewMode === 'mesh' && this.peerMeshCard && !this.peerMeshCard.classList.contains('hidden')) {
+        this.drawPeerMesh(dt, time);
+      }
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  }
+
+  drawPeerMesh(dt, time) {
+    if (!this.peerMeshCtx || !this.peerMeshCanvas) return;
+    const ctx = this.peerMeshCtx;
+    const w = this.peerMeshCanvas.width;
+    const h = this.peerMeshCanvas.height;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Deep space background with subtle radial gradient
+    const bgGrad = ctx.createRadialGradient(w / 2, h / 2, 10, w / 2, h / 2, w / 2);
+    bgGrad.addColorStop(0, '#0a101f');
+    bgGrad.addColorStop(1, '#05070d');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, w, h);
+
+    const s = this.getSelectedSwarm();
+    const peers = (s && Array.isArray(s.peersList)) ? s.peersList : [];
+    const cx = w / 2;
+    const cy = h / 2;
+
+    if (peers.length === 0) {
+      // 0 Peers State: Animated DHT / Tracker Announce Radar
+      this.radarAngle = (this.radarAngle + dt * 1.6) % (Math.PI * 2);
+      const maxR = Math.min(cx, cy) - 12;
+
+      // Draw concentric radar range circles
+      ctx.lineWidth = 1;
+      [0.25, 0.5, 0.75, 1.0].forEach((ratio, i) => {
+        ctx.strokeStyle = i === 3 ? 'rgba(56, 189, 248, 0.35)' : 'rgba(56, 189, 248, 0.15)';
+        ctx.beginPath();
+        ctx.arc(cx, cy, maxR * ratio, 0, Math.PI * 2);
+        ctx.stroke();
+      });
+
+      // Azimuth crosshairs
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.2)';
+      ctx.beginPath();
+      ctx.moveTo(cx - maxR, cy);
+      ctx.lineTo(cx + maxR, cy);
+      ctx.moveTo(cx, cy - maxR);
+      ctx.lineTo(cx, cy + maxR);
+      ctx.stroke();
+
+      // Sweeping radar wedge
+      const sweepAngle = 0.6; // ~35 degrees
+      const startAngle = this.radarAngle - sweepAngle;
+      const endAngle = this.radarAngle;
+
+      const sweepGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxR);
+      sweepGrad.addColorStop(0, 'rgba(56, 189, 248, 0.35)');
+      sweepGrad.addColorStop(1, 'rgba(56, 189, 248, 0.05)');
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, maxR, startAngle, endAngle);
+      ctx.closePath();
+      ctx.fillStyle = sweepGrad;
+      ctx.fill();
+
+      // Leading beam
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(endAngle) * maxR, cy + Math.sin(endAngle) * maxR);
+      ctx.stroke();
+      ctx.restore();
+
+      // Tracker query blips around radar
+      const trackers = [
+        { angle: 0.5, dist: 0.65, label: 'opentrackr.org' },
+        { angle: 1.8, dist: 0.85, label: 'stealth.si' },
+        { angle: 3.4, dist: 0.50, label: 'torrent.eu.org' },
+        { angle: 4.6, dist: 0.70, label: 'DHT Node IPv4' },
+        { angle: 5.7, dist: 0.80, label: 'openwebtorrent' }
+      ];
+
+      trackers.forEach(tb => {
+        const bx = cx + Math.cos(tb.angle) * (maxR * tb.dist);
+        const by = cy + Math.sin(tb.angle) * (maxR * tb.dist);
+
+        // Calculate angular distance to radar sweep for glowing phosphor decay
+        let diff = (this.radarAngle - tb.angle) % (Math.PI * 2);
+        if (diff < 0) diff += Math.PI * 2;
+        const brightness = Math.max(0.15, 1 - diff / 1.5);
+
+        ctx.save();
+        ctx.fillStyle = `rgba(56, 189, 248, ${brightness})`;
+        ctx.shadowColor = '#38bdf8';
+        ctx.shadowBlur = brightness > 0.6 ? 8 : 2;
+        ctx.beginPath();
+        ctx.arc(bx, by, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (brightness > 0.4) {
+          ctx.font = '8px monospace';
+          ctx.fillStyle = `rgba(148, 163, 184, ${brightness})`;
+          ctx.fillText(tb.label, bx + 5, by + 3);
+        }
+        ctx.restore();
+      });
+
+      // Center radar core readout
+      ctx.font = 'bold 9px monospace';
+      ctx.fillStyle = '#38bdf8';
+      ctx.textAlign = 'center';
+      ctx.fillText('DHT SEARCHING // TRACKERS ANNOUNCING', cx, cy - 8);
+      ctx.font = '8px monospace';
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText('0 PEERS CONNECTED (AWAITING UNCHOKE)', cx, cy + 8);
+
+      const wireBadge = document.getElementById('meshWireCount');
+      if (wireBadge) wireBadge.textContent = '0 PEERS (RADAR SEARCH)';
+      return;
+    }
+
+    // Peers > 0: Render Dynamic Multi-Node Topology Mesh
+    const wireBadge = document.getElementById('meshWireCount');
+    if (wireBadge) wireBadge.textContent = `${peers.length} ACTIVE WIRES`;
+
+    const orbitRx = w * 0.38;
+    const orbitRy = h * 0.35;
+
+    // Draw orbital path guide
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.08)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, orbitRx, orbitRy, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Spawn / update flowing packet particles along wires
+    if (!this.meshParticles) this.meshParticles = [];
+    if (this.meshParticles.length < peers.length * 3) {
+      peers.forEach((_, pIdx) => {
+        this.meshParticles.push({
+          peerIndex: pIdx,
+          progress: Math.random(),
+          speed: 0.35 + Math.random() * 0.5
+        });
+      });
+    }
+
+    // Update and draw particles
+    this.meshParticles.forEach(pt => {
+      pt.progress = (pt.progress + dt * pt.speed) % 1.0;
+    });
+
+    // Draw wires and satellites
+    peers.forEach((peer, idx) => {
+      const angle = (idx / peers.length) * Math.PI * 2 - Math.PI / 2;
+      const px = cx + Math.cos(angle) * orbitRx;
+      const py = cy + Math.sin(angle) * orbitRy;
+
+      // Draw Wire Line from Center to Peer
+      const isEncrypted = peer.enc === 'TLS' || peer.encClass?.includes('tls');
+      ctx.strokeStyle = isEncrypted ? 'rgba(56, 189, 248, 0.35)' : 'rgba(234, 179, 8, 0.30)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(px, py);
+      ctx.stroke();
+
+      // Flowing packet pulses along this wire
+      this.meshParticles.filter(pt => pt.peerIndex === idx).forEach(pt => {
+        // Flow from peer into Haven center (download)
+        const dotX = px + (cx - px) * pt.progress;
+        const dotY = py + (cy - py) * pt.progress;
+        ctx.fillStyle = '#10b981';
+        ctx.shadowColor = '#10b981';
+        ctx.shadowBlur = 6;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      });
+
+      // Satellite Peer Node
+      ctx.fillStyle = '#0f172a';
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(px, py, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Peer label
+      ctx.font = '8px monospace';
+      ctx.fillStyle = '#e2e8f0';
+      ctx.textAlign = px > cx ? 'left' : 'right';
+      const xOffset = px > cx ? 11 : -11;
+      const clientText = (peer.client || 'Peer').slice(0, 14);
+      ctx.fillText(clientText, px + xOffset, py - 3);
+
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillText(peer.speed || '0 KB/s', px + xOffset, py + 7);
+    });
+
+    // Draw Center Node (Local Haven Engine)
+    const pulseR = 14 + Math.sin((time || 0) * 0.004) * 2;
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, pulseR + 4, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = '#0284c7';
+    ctx.shadowColor = '#38bdf8';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    ctx.font = 'bold 8px monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.fillText('HAVEN', cx, cy + 3);
   }
 }
 

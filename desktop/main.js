@@ -483,6 +483,14 @@ let parseTorrentFunc = null;
 let torrentClient = null;
 const activeTorrents = new Map(); // swarmId -> Torrent
 
+// Bandwidth QoS / Traffic Governor state
+let currentThrottleConfig = {
+  downBytesSec: -1, // -1 is unlimited
+  upBytesSec: -1,
+  maxConns: 60,
+  preset: 'unlimited'
+};
+
 function broadcastKernelLog(tag, message, level = 'info') {
   const ts = new Date().toTimeString().split(' ')[0];
   const item = { timestamp: ts, tag, message, level };
@@ -507,10 +515,17 @@ async function getTorrentEngine() {
       WebTorrentClass = mod.default;
     }
     torrentClient = new WebTorrentClass({
-      maxConns: 60,
+      maxConns: currentThrottleConfig.maxConns,
       dht: true,
       tracker: true,
     });
+
+    if (typeof torrentClient.throttleDownload === 'function') {
+      torrentClient.throttleDownload(currentThrottleConfig.downBytesSec);
+    }
+    if (typeof torrentClient.throttleUpload === 'function') {
+      torrentClient.throttleUpload(currentThrottleConfig.upBytesSec);
+    }
 
     torrentClient.on('error', (err) => {
       console.error('[WebTorrent Engine Error]', err);
@@ -614,6 +629,7 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
       broadcastKernelLog('DHT/TRACKER', `Metadata resolved: "${torrent.name}" (${(torrent.length / (1024*1024)).toFixed(1)} MB, ${torrent.files ? torrent.files.length : 0} files)`);
       
       const { sanitizedFiles, execRiskDetected } = inspectTorrentFileManifest(torrent.files);
+      let quarantineReason = null;
 
       // SafePath Confinement: Automatically quarantine and deselect executable extensions
       if (Array.isArray(torrent.files)) {
@@ -621,6 +637,9 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
           const ext = path.extname(file.name || '').toLowerCase();
           if (BLOCKED_EXECUTABLE_EXTS.has(ext)) {
             file.deselect();
+            if (!quarantineReason) {
+              quarantineReason = `Executable payload detected: ${file.name}`;
+            }
             broadcastKernelLog('SAFEPATH/GATE', `Quarantined and deselected executable risk: ${file.name}`, 'warn');
           } else if (Array.isArray(deselectedFiles) && (deselectedFiles.includes(idx) || deselectedFiles.includes(file.name))) {
             file.deselect();
@@ -635,6 +654,7 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
           name: torrent.name,
           totalSize: torrent.length,
           execRiskDetected,
+          quarantineReason,
           files: sanitizedFiles
         });
       }
@@ -786,6 +806,76 @@ registerSecureHandler('torrent:delete', async (_event, payload) => {
     } catch (_) {}
   }
   return true;
+});
+
+// Real Traffic Throttle / Bandwidth & Connection Limiter (QoS)
+registerSecureHandler('torrent:setThrottle', async (_event, config) => {
+  if (!config || typeof config !== 'object') {
+    throw new Error('[QoS] Invalid throttle configuration object.');
+  }
+
+  const down = (typeof config.downBytesSec === 'number' && config.downBytesSec > 0) ? Math.round(config.downBytesSec) : -1;
+  const up = (typeof config.upBytesSec === 'number' && config.upBytesSec > 0) ? Math.round(config.upBytesSec) : -1;
+  const maxConns = (typeof config.maxConns === 'number' && config.maxConns > 0) ? Math.min(200, Math.max(5, Math.round(config.maxConns))) : 60;
+  const preset = typeof config.preset === 'string' ? config.preset : 'custom';
+
+  currentThrottleConfig = { downBytesSec: down, upBytesSec: up, maxConns, preset };
+
+  if (torrentClient) {
+    if (typeof torrentClient.throttleDownload === 'function') {
+      torrentClient.throttleDownload(down);
+    }
+    if (typeof torrentClient.throttleUpload === 'function') {
+      torrentClient.throttleUpload(up);
+    }
+    torrentClient.maxConns = maxConns;
+    for (const t of activeTorrents.values()) {
+      t.maxConns = maxConns;
+    }
+  }
+
+  const downStr = down === -1 ? 'UNLIMITED' : `${(down / (1024 * 1024)).toFixed(2)} MB/s`;
+  const upStr = up === -1 ? 'UNLIMITED' : `${(up / 1024).toFixed(0)} KB/s`;
+  broadcastKernelLog('QOS/THROTTLE', `Bandwidth cap enforced: DOWN=${downStr} | UP=${upStr} | MAX_WIRES=${maxConns} [${preset.toUpperCase()}]`);
+
+  return { success: true, config: currentThrottleConfig };
+});
+
+registerSecureHandler('torrent:getThrottle', async () => {
+  return { success: true, config: currentThrottleConfig };
+});
+
+// SafePath Quarantine & Release IPC Handlers
+registerSecureHandler('torrent:quarantineSwarm', async (_event, id) => {
+  if (typeof id === 'string' && activeTorrents.has(id)) {
+    const t = activeTorrents.get(id);
+    if (!t.paused) t.pause();
+    if (Array.isArray(t.files)) {
+      t.files.forEach(f => f.deselect());
+    }
+    broadcastKernelLog('SAFEPATH/GATE', `Swarm manually quarantined & locked from disk: ${t.name || id}`, 'warn');
+    return true;
+  }
+  return false;
+});
+
+registerSecureHandler('torrent:releaseQuarantine', async (_event, id) => {
+  if (typeof id === 'string' && activeTorrents.has(id)) {
+    const t = activeTorrents.get(id);
+    if (Array.isArray(t.files)) {
+      t.files.forEach(f => {
+        const ext = path.extname(f.name || '').toLowerCase();
+        if (!BLOCKED_EXECUTABLE_EXTS.has(ext)) {
+          f.select();
+        }
+      });
+    }
+    if (t.paused) t.resume();
+    wakeHeartbeatIfNeeded();
+    broadcastKernelLog('SAFEPATH/TRUST', `Swarm released from quarantine by user: ${t.name || id}`);
+    return true;
+  }
+  return false;
 });
 
 // Ground-Truth Asynchronous Disk Byte Verifier (Cached every 2500ms to preserve 60fps)
@@ -991,10 +1081,14 @@ async function handleParseTorrentFile(fileArg) {
   const pieces = parsed.pieces ? parsed.pieces.length : (pieceLength > 0 ? Math.ceil(totalLength / pieceLength) : 0);
   const trackers = Array.isArray(parsed.announce) ? parsed.announce : [];
 
+  let firstRiskName = null;
   const files = (parsed.files || []).map(f => {
     const fPath = f.path || f.name || 'payload';
     const ext = path.extname(fPath).toLowerCase();
     const isRisk = BLOCKED_EXECUTABLE_EXTS.has(ext);
+    if (isRisk && !firstRiskName) {
+      firstRiskName = f.name || path.basename(fPath);
+    }
     return {
       name: f.name || path.basename(fPath),
       path: fPath,
@@ -1008,6 +1102,7 @@ async function handleParseTorrentFile(fileArg) {
   if (files.length === 0 && totalLength > 0) {
     const ext = path.extname(name).toLowerCase();
     const isRisk = BLOCKED_EXECUTABLE_EXTS.has(ext);
+    if (isRisk && !firstRiskName) firstRiskName = name;
     files.push({
       name,
       path: name,
@@ -1017,6 +1112,9 @@ async function handleParseTorrentFile(fileArg) {
       locked: isRisk
     });
   }
+
+  const execRiskDetected = files.some(f => f.isRisk);
+  const quarantineReason = firstRiskName ? `Executable payload detected: ${firstRiskName}` : null;
 
   broadcastKernelLog('BENCODE', `Decoded: "${name}" | InfoHash: ${infoHash} | Total: ${(totalLength / (1024*1024)).toFixed(1)} MB | Pieces: ${pieces} (${pieceLength} B) | Trackers: ${trackers.length}`);
 
@@ -1028,6 +1126,8 @@ async function handleParseTorrentFile(fileArg) {
     pieceLength,
     pieces,
     files,
+    execRiskDetected,
+    quarantineReason,
     announce: trackers,
     buffer: buffer.toString('base64'),
     sourcePath: sourcePath || null

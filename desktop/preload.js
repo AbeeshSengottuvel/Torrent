@@ -136,6 +136,26 @@ const nativeBridge = {
     return ipcRenderer.invoke('torrent:delete', payload);
   },
 
+  // Traffic Throttle & QoS IPC
+  setTrafficThrottle: (config) => {
+    if (!config || typeof config !== 'object') {
+      return Promise.reject(new Error('[QoS] Invalid throttle configuration payload.'));
+    }
+    return ipcRenderer.invoke('torrent:setThrottle', config);
+  },
+
+  getTrafficThrottle: () => ipcRenderer.invoke('torrent:getThrottle'),
+
+  quarantineTorrent: (id) => {
+    if (!isNonEmptyString(id)) return Promise.resolve(false);
+    return ipcRenderer.invoke('torrent:quarantineSwarm', id);
+  },
+
+  releaseQuarantine: (id) => {
+    if (!isNonEmptyString(id)) return Promise.resolve(false);
+    return ipcRenderer.invoke('torrent:releaseQuarantine', id);
+  },
+
   // Window Controls
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
   maximizeWindow: () => ipcRenderer.invoke('window:maximize'),
