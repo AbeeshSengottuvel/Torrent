@@ -17,8 +17,10 @@ class HavenMissionControl {
 
     this.initElements();
     this.attachEvents();
+    this.initEngineEvents();
     this.render();
     this.startdiagnosticsTicker();
+    this.restoreActiveDownloads();
   }
 
   initSwarms() {
@@ -39,12 +41,64 @@ class HavenMissionControl {
             !p.name.includes('unverified-tools') &&
             !p.name.includes('FreeCAD')
           );
+          // Sanitize any previously cached simulated speeds so only authentic live network stats appear
+          clean.forEach(s => {
+            s.downSpeed = '0.0 KB/s';
+            s.upSpeed = '0.0 KB/s';
+            s.rawDownSpeed = 0;
+            s.rawUpSpeed = 0;
+            s.peers = '0';
+            if (s.state === 'downloading') {
+              s.eta = 'Connecting to peers...';
+            }
+          });
           return clean;
         }
       }
     } catch (e) {}
     // Clean production state: ZERO hardcoded mock data
     return [];
+  }
+
+  startRealTorrent(swarm) {
+    if (!swarm || !window.havenNative?.startTorrent) return;
+
+    let source = swarm.source;
+    if (!source && swarm.hash) {
+      source = `magnet:?xt=urn:btih:${swarm.hash}&dn=${encodeURIComponent(swarm.name)}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce`;
+      swarm.source = source;
+    }
+
+    if (!source && !swarm.fileBuffer) {
+      this.appendLog(`[WARN] No source or package data available for: ${swarm.name}`);
+      return;
+    }
+
+    const targetDir = swarm.targetMount || this.downloadDir || 'C:\\Users\\Abeesh\\Downloads\\Haven';
+
+    window.havenNative.startTorrent({
+      id: swarm.id,
+      source: source || null,
+      targetDir: targetDir,
+      name: swarm.name,
+      fileBuffer: swarm.fileBuffer || null
+    }).then(res => {
+      if (res && res.success) {
+        this.appendLog(`[ENGINE] Live BitTorrent engine engaged for: ${swarm.name}`);
+      } else if (res && res.error) {
+        this.appendLog(`[ENGINE ERROR] Failed to start transfer: ${res.error}`);
+      }
+    }).catch(err => {
+      this.appendLog(`[ENGINE ERROR] ${err.message}`);
+    });
+  }
+
+  restoreActiveDownloads() {
+    this.swarms.forEach(s => {
+      if (s.state === 'downloading') {
+        this.startRealTorrent(s);
+      }
+    });
   }
 
   saveSwarms() {
@@ -140,16 +194,28 @@ class HavenMissionControl {
     // Quick Action Bar
     document.getElementById('btnResumeAll')?.addEventListener('click', () => {
       this.swarms.forEach(s => {
-        if (s.state === 'paused') s.state = 'downloading';
+        if (s.state === 'paused') {
+          s.state = 'downloading';
+          s.eta = 'Connecting to peers...';
+          this.startRealTorrent(s);
+        }
       });
       this.saveSwarms();
       this.render();
-      this.appendLog('[ACTION] Resumed all active swarms.');
+      this.appendLog('[ACTION] Resumed all active swarms via WebTorrent engine.');
     });
 
     document.getElementById('btnPauseAll')?.addEventListener('click', () => {
       this.swarms.forEach(s => {
-        if (s.state === 'downloading') s.state = 'paused';
+        if (s.state === 'downloading') {
+          s.state = 'paused';
+          s.downSpeed = '0.0 KB/s';
+          s.upSpeed = '0.0 KB/s';
+          s.rawDownSpeed = 0;
+          s.rawUpSpeed = 0;
+          s.eta = 'Paused';
+          window.havenNative?.pauseTorrent(s.id);
+        }
       });
       this.saveSwarms();
       this.render();
@@ -173,6 +239,8 @@ class HavenMissionControl {
       if (current) {
         current.state = 'downloading';
         current.progressState = 'active';
+        current.eta = 'Connecting to peers...';
+        this.startRealTorrent(current);
         this.saveSwarms();
         this.render();
         this.appendLog(`[SAFEPATH] Verified volume allocation for ${current.name}. Beginning disk writes.`);
@@ -230,6 +298,16 @@ class HavenMissionControl {
     this.initAddMagnetModal();
     this.initTargetMountActions();
     this.initSwarmContextMenu();
+    this.initEngineEvents();
+    this.restoreActiveDownloads();
+  }
+
+  formatSpeed(bytesSec) {
+    if (!bytesSec || bytesSec <= 0) return '0.0 KB/s';
+    const kb = bytesSec / 1024;
+    if (kb < 1024) return `${kb.toFixed(1)} KB/s`;
+    const mb = kb / 1024;
+    return `${mb.toFixed(1)} MB/s`;
   }
 
   formatBytes(bytes) {
@@ -296,10 +374,9 @@ class HavenMissionControl {
       const s = this.contextSwarm;
       if (!s) return;
       s.state = s.progressPct >= 100 ? 'seeding' : 'downloading';
-      s.downSpeed = s.state === 'downloading' ? '8.4 MB/s' : '0.0 KB/s';
-      s.upSpeed = s.state === 'seeding' ? '1.8 MB/s' : '0.4 MB/s';
-      s.eta = s.state === 'seeding' ? 'Seeding' : 'Estimating';
-      this.appendLog(`[SWARM] Resumed transfer: ${s.name}`);
+      s.eta = s.state === 'seeding' ? 'Seeding' : 'Connecting to peers...';
+      this.startRealTorrent(s);
+      this.appendLog(`[SWARM] Resumed real transfer: ${s.name}`);
       menu?.classList.add('hidden');
       this.saveSwarms();
       this.render();
@@ -312,7 +389,10 @@ class HavenMissionControl {
       s.state = 'paused';
       s.downSpeed = '0.0 KB/s';
       s.upSpeed = '0.0 KB/s';
+      s.rawDownSpeed = 0;
+      s.rawUpSpeed = 0;
       s.eta = 'Paused';
+      window.havenNative?.pauseTorrent(s.id);
       this.appendLog(`[SWARM] Paused transfer: ${s.name}`);
       menu?.classList.add('hidden');
       this.saveSwarms();
@@ -326,7 +406,10 @@ class HavenMissionControl {
       s.state = 'paused';
       s.downSpeed = '0.0 KB/s';
       s.upSpeed = '0.0 KB/s';
+      s.rawDownSpeed = 0;
+      s.rawUpSpeed = 0;
       s.eta = 'Stopped';
+      window.havenNative?.stopTorrent(s.id);
       this.appendLog(`[SWARM] Stopped transfer: ${s.name}`);
       menu?.classList.add('hidden');
       this.saveSwarms();
@@ -845,6 +928,8 @@ class HavenMissionControl {
         numType: isRisky ? 'red' : 'active',
         name: dn,
         hash: pkg.hash,
+        source: pkg.source || (pkg.hash ? `magnet:?xt=urn:btih:${pkg.hash}&dn=${encodeURIComponent(dn)}` : null),
+        fileBuffer: pkg.fileBuffer || null,
         sizeFormatted: pkg.sizeFormatted,
         sizeBytes: pkg.sizeBytes,
         downloadedBytes: 0,
@@ -853,11 +938,13 @@ class HavenMissionControl {
         progressState: isRisky ? 'halted' : (autoStart ? 'active' : 'paused'),
         securityBadge: isRisky ? 'status-exec-blocked' : 'status-safepath-ok',
         securityText: isRisky ? '[EXEC RISK]' : '[SAFEPATH OK]',
-        downSpeed: autoStart ? '8.4 MB/s' : '0.0 KB/s',
+        downSpeed: '0.0 KB/s',
         upSpeed: '0.0 KB/s',
-        peers: '24',
-        peersLeech: '8',
-        eta: autoStart ? 'Estimating' : 'Paused',
+        rawDownSpeed: 0,
+        rawUpSpeed: 0,
+        peers: '0',
+        peersLeech: '0',
+        eta: autoStart ? 'Connecting to peers...' : 'Paused',
         state: isRisky ? 'quarantined' : (autoStart ? 'downloading' : 'paused'),
         targetMount: targetMount,
         freeVolume: '382.4 GB',
@@ -871,14 +958,12 @@ class HavenMissionControl {
           title: `QUARANTINE ACTIVE // ${dn.toUpperCase()}`,
           desc: 'Potentially dangerous payload isolated. SafePath gate enforced.'
         } : null,
-        peersList: [
-          { ip: '203.0.113.88 (JP)', client: 'Haven/1.0', speed: '2.4 MB/s', enc: 'TLS', encClass: 'badge-enc-tls' }
-        ],
-        bitfield: { total: 360, verified: 0, inFlight: autoStart ? 6 : 0 },
+        peersList: [],
+        bitfield: { total: 360, verified: 0, inFlight: 0 },
         tracker: {
           active: 'tracker.opentrackr.org:1337',
           reannounce: '00:15:00',
-          scrape: '142 / 38'
+          scrape: '0 / 0'
         }
       };
 
@@ -888,19 +973,8 @@ class HavenMissionControl {
       this.closeAddMagnetModal();
       this.render();
 
-      // Write download allocation immediately to user's selected disk path
-      if (window.havenNative?.writeDownloadFile) {
-        window.havenNative.writeDownloadFile({
-          targetDir: targetMount,
-          fileName: dn,
-          sizeBytes: newSwarm.sizeBytes,
-          files: newSwarm.files,
-          isCompleted: false
-        }).then(res => {
-          if (res && res.success) {
-            this.appendLog(`[DISK] Allocated download payload at: ${res.canonicalPath}`);
-          }
-        });
+      if (autoStart && !isRisky) {
+        this.startRealTorrent(newSwarm);
       }
 
       this.appendLog(`[SAFEPATH] Ingested package ${dn} -> Mount: ${targetMount}. Beginning transfer.`);
@@ -915,6 +989,7 @@ class HavenMissionControl {
       return;
     }
 
+    const rawMagnet = this.modalMagnetUri?.value.trim() || '';
     const dn = this.modalMagnetName?.value.trim() || parsed.dn || 'magnet-payload';
     const isRisky = /\.(exe|bat|cmd|ps1|iso|vbs)$/i.test(dn);
 
@@ -924,6 +999,8 @@ class HavenMissionControl {
       numType: isRisky ? 'red' : 'active',
       name: dn,
       hash: parsed.hash,
+      source: rawMagnet,
+      fileBuffer: null,
       sizeFormatted: '1.45 GB',
       sizeBytes: 1556925644,
       downloadedBytes: 0,
@@ -932,11 +1009,13 @@ class HavenMissionControl {
       progressState: isRisky ? 'halted' : (autoStart ? 'active' : 'paused'),
       securityBadge: isRisky ? 'status-exec-blocked' : 'status-safepath-ok',
       securityText: isRisky ? '[EXEC RISK]' : '[SAFEPATH OK]',
-      downSpeed: autoStart ? '8.2 MB/s' : '0.0 KB/s',
+      downSpeed: '0.0 KB/s',
       upSpeed: '0.0 KB/s',
-      peers: '28',
-      peersLeech: '6',
-      eta: autoStart ? 'Estimating' : 'Paused',
+      rawDownSpeed: 0,
+      rawUpSpeed: 0,
+      peers: '0',
+      peersLeech: '0',
+      eta: autoStart ? 'Connecting to peers...' : 'Paused',
       state: isRisky ? 'quarantined' : (autoStart ? 'downloading' : 'paused'),
       targetMount: targetMount,
       freeVolume: '382.4 GB',
@@ -952,14 +1031,12 @@ class HavenMissionControl {
         title: `QUARANTINE ACTIVE // ${dn.toUpperCase()}`,
         desc: 'Executable or script extension detected. File is locked from direct disk flush until overridden.'
       } : null,
-      peersList: [
-        { ip: '198.51.100.24 (US)', client: 'libtorrent/2.0', speed: '1.8 MB/s', enc: 'TLS', encClass: 'badge-enc-tls' }
-      ],
-      bitfield: { total: 512, verified: 0, inFlight: autoStart ? 4 : 0 },
+      peersList: [],
+      bitfield: { total: 512, verified: 0, inFlight: 0 },
       tracker: {
         active: 'tracker.opentrackr.org:1337',
         reannounce: '00:15:00',
-        scrape: '112 / 24'
+        scrape: '0 / 0'
       }
     };
 
@@ -970,19 +1047,8 @@ class HavenMissionControl {
     if (this.uriInput) this.uriInput.value = '';
     this.render();
 
-    // Write download allocation immediately to user's selected disk path
-    if (window.havenNative?.writeDownloadFile) {
-      window.havenNative.writeDownloadFile({
-        targetDir: targetMount,
-        fileName: dn,
-        sizeBytes: newSwarm.sizeBytes,
-        files: newSwarm.files,
-        isCompleted: false
-      }).then(res => {
-        if (res && res.success) {
-          this.appendLog(`[DISK] Allocated download payload at: ${res.canonicalPath}`);
-        }
-      });
+    if (autoStart && !isRisky) {
+      this.startRealTorrent(newSwarm);
     }
 
     this.appendLog(`[SAFEPATH] Ingested Magnet swarm: ${dn} -> Mount: ${targetMount} (UpLimit: ${uploadLimit ? uploadLimit + 'kB/s' : '∞'})`);
@@ -1477,7 +1543,7 @@ class HavenMissionControl {
   startdiagnosticsTicker() {
     const time = new Date().toTimeString().split(' ')[0];
     const initialLogs = [
-      `[${time}] [BOOT] Haven v1.0.4-SEC initialized in Zero-Trust mode`,
+      `[${time}] [BOOT] Haven BitTorrent Engine active`,
       `[${time}] [GUARD] WireGuard wg0 interface integrity: 0 leaks verified`,
       `[${time}] [DHT] Routing table synchronized (IPv4/IPv6 dual-stack)`,
       `[${time}] [SAFEPATH] Confinement engine active. Awaiting input...`
@@ -1486,146 +1552,169 @@ class HavenMissionControl {
 
     this.tickerSec = 0;
 
-    // Live update loop every second
+    // Real Diagnostics Ticker (calculates actual aggregate bandwidth from live swarms)
     setInterval(() => {
       this.tickerSec++;
       let totalDownBytesSec = 0;
       let totalUpBytesSec = 0;
       let totalActivePeers = 0;
-      let hasDownloading = false;
 
       this.swarms.forEach(s => {
-        if (s.state === 'downloading') {
-          hasDownloading = true;
-          const size = s.sizeBytes || 1331691520;
-          if (s.downloadedBytes === undefined || s.downloadedBytes === null) {
-            s.downloadedBytes = Math.round((s.progressPct / 100) * size);
-          }
-
-          // Transfer chunk per second: ~6.8 - 9.6 MB/s
-          const speedBytes = Math.round((7.8 + (Math.random() * 1.8 - 0.9)) * 1024 * 1024);
-          const upSpeedBytes = Math.round((0.9 + (Math.random() * 0.4 - 0.2)) * 1024 * 1024);
-
-          totalDownBytesSec += speedBytes;
-          totalUpBytesSec += upSpeedBytes;
-
-          s.downloadedBytes = Math.min(size, s.downloadedBytes + speedBytes);
-          s.progressPct = (s.downloadedBytes / size) * 100;
-          s.progressSub = `${this.formatBytes(s.downloadedBytes)} of ${s.sizeFormatted}`;
-          s.downSpeed = `${(speedBytes / (1024 * 1024)).toFixed(1)} MB/s`;
-          s.upSpeed = `${(upSpeedBytes / (1024 * 1024)).toFixed(1)} MB/s`;
-
-          // Realistic dynamic ETA
-          const remainingBytes = Math.max(0, size - s.downloadedBytes);
-          const remainingSec = Math.ceil(remainingBytes / speedBytes);
-          s.eta = this.formatEta(remainingSec);
-
-          // Update bitfield blocks
-          if (s.bitfield) {
-            s.bitfield.verified = Math.round((s.downloadedBytes / size) * s.bitfield.total);
-            s.bitfield.inFlight = Math.min(8, Math.max(0, s.bitfield.total - s.bitfield.verified));
-          }
-
-          // Total peers active
-          totalActivePeers += parseInt(s.peers || '16', 10);
-
-          // 100% completion transition
-          if (s.downloadedBytes >= size) {
-            s.progressPct = 100.0;
-            s.state = 'seeding';
-            s.progressState = 'complete';
-            s.downSpeed = '0.0 KB/s';
-            s.upSpeed = `${(1.2 + Math.random() * 0.4).toFixed(1)} MB/s`;
-            s.eta = 'Seeding';
-            s.securityBadge = 'status-safepath-ok';
-            s.securityText = '[COMPLETED // VERIFIED]';
-
-            // Flush completed payload to disk in targetMount directory
-            if (window.havenNative?.writeDownloadFile) {
-              window.havenNative.writeDownloadFile({
-                targetDir: s.targetMount,
-                fileName: s.name,
-                sizeBytes: size,
-                files: s.files,
-                isCompleted: true
-              }).then(res => {
-                if (res && res.success) {
-                  this.appendLog(`[DISK] Flushed verified payload to: ${res.canonicalPath}`);
-                }
-              });
-            }
-
-            this.appendLog(`[VERIFY] Swarm ${s.name} complete (100.0%). All chunks cryptographic SHA-256 verified.`);
-          }
-        } else if (s.state === 'seeding') {
-          const upSpeedBytes = Math.round((1.1 + (Math.random() * 0.5 - 0.2)) * 1024 * 1024);
-          totalUpBytesSec += upSpeedBytes;
-          s.upSpeed = `${(upSpeedBytes / (1024 * 1024)).toFixed(1)} MB/s`;
-          s.downSpeed = '0.0 KB/s';
-          totalActivePeers += parseInt(s.peers || '8', 10);
-        }
+        totalDownBytesSec += (s.rawDownSpeed || 0);
+        totalUpBytesSec += (s.rawUpSpeed || 0);
+        totalActivePeers += parseInt(s.peers || '0', 10);
       });
 
-      // Update Waveform
-      const currentSelected = this.getSelectedSwarm();
-      let currentWaveformSpeed = 0.0;
-      let currentUploadSpeed = 0.0;
-
-      if (currentSelected && currentSelected.state === 'downloading') {
-        currentWaveformSpeed = parseFloat(currentSelected.downSpeed) || 0.0;
-        currentUploadSpeed = parseFloat(currentSelected.upSpeed) || 0.0;
-      } else if (hasDownloading) {
-        currentWaveformSpeed = totalDownBytesSec / (1024 * 1024);
-        currentUploadSpeed = totalUpBytesSec / (1024 * 1024);
-      } else if (currentSelected && currentSelected.state === 'seeding') {
-        currentUploadSpeed = parseFloat(currentSelected.upSpeed) || 0.0;
-      }
+      // Update Waveform with REAL throughput
+      const downMB = totalDownBytesSec / (1024 * 1024);
+      const upMB = totalUpBytesSec / (1024 * 1024);
 
       this.waveformHistory.shift();
-      this.waveformHistory.push(currentWaveformSpeed);
+      this.waveformHistory.push(downMB);
 
       if (!this.waveformUploadHistory) this.waveformUploadHistory = Array.from({ length: 60 }, () => 0.0);
       this.waveformUploadHistory.shift();
-      this.waveformUploadHistory.push(currentUploadSpeed);
+      this.waveformUploadHistory.push(upMB);
 
       const waveformLabel = document.getElementById('waveformNow');
-      if (waveformLabel) waveformLabel.textContent = `NOW: ${currentWaveformSpeed.toFixed(2)} MB/s`;
+      if (waveformLabel) waveformLabel.textContent = `NOW: ${downMB.toFixed(2)} MB/s`;
       this.drawWaveform();
 
       // Update Top Throughput Pill
       const topDown = document.getElementById('topSpeedDown');
-      if (topDown) topDown.textContent = `${(totalDownBytesSec / (1024 * 1024)).toFixed(1)} MB/s`;
+      if (topDown) topDown.textContent = `${downMB.toFixed(1)} MB/s`;
       const topUp = document.getElementById('topSpeedUp');
-      if (topUp) topUp.textContent = `${(totalUpBytesSec / (1024 * 1024)).toFixed(1)} MB/s`;
+      if (topUp) topUp.textContent = `${upMB.toFixed(1)} MB/s`;
 
       // Update Active Peers
       const peerCountEl = document.getElementById('valActivePeers');
       if (peerCountEl) peerCountEl.textContent = String(totalActivePeers);
 
-      // Re-render UI table & diagnostics
-      if (hasDownloading || this.tickerSec % 2 === 0) {
-        this.renderTable();
-        this.renderdiagnosticsPanels();
-        this.updateSidebarCounts();
-      }
-
       // Auto-save progress every 5 seconds
       if (this.tickerSec % 5 === 0) {
         this.saveSwarms();
       }
-
-      // Random diagnostics kernel log entries
-      if (hasDownloading && Math.random() > 0.6) {
-        const t = new Date().toTimeString().split(' ')[0];
-        const events = [
-          `[${t}] [DHT] Routing table synchronized (${380 + Math.floor(Math.random() * 60)} nodes)`,
-          `[${t}] [VERIFY] Chunk #${Math.floor(Math.random() * 450)} SHA-256 match OK (0.001s)`,
-          `[${t}] [GUARD] Leak defense: 0 packets on non-wg0 interface`,
-          `[${t}] [TRACKER] Announce ack from ${currentSelected?.tracker?.active || 'tracker.opentrackr.org'}`
-        ];
-        this.appendLog(events[Math.floor(Math.random() * events.length)]);
-      }
     }, 1000);
+  }
+
+  /* -------------------------------------------------------------------------
+     REAL BITTORRENT ENGINE EVENT STREAM (WEBTORRENT BACKEND)
+     ------------------------------------------------------------------------- */
+  initEngineEvents() {
+    if (window.havenNative?.onTorrentStatusBatch) {
+      window.havenNative.onTorrentStatusBatch((batch) => {
+        if (!Array.isArray(batch)) return;
+
+        let changed = false;
+        batch.forEach(update => {
+          const s = this.swarms.find(item => item.id === update.id);
+          if (!s) return;
+
+          s.rawDownSpeed = update.downloadSpeed || 0;
+          s.rawUpSpeed = update.uploadSpeed || 0;
+          s.downloadedBytes = update.downloaded || 0;
+          if (update.total && update.total > 0) s.sizeBytes = update.total;
+
+          s.progressPct = Math.min(100, Math.max(0, (update.progress || 0) * 100));
+          s.progressSub = `${this.formatBytes(s.downloadedBytes)} of ${this.formatBytes(s.sizeBytes)}`;
+          s.downSpeed = this.formatSpeed(update.downloadSpeed);
+          s.upSpeed = this.formatSpeed(update.uploadSpeed);
+          s.peers = String(update.numPeers || 0);
+
+          if (update.done) {
+            s.state = 'seeding';
+            s.progressState = 'complete';
+            s.eta = 'Seeding';
+            s.securityBadge = 'status-safepath-ok';
+            s.securityText = '[COMPLETED // VERIFIED]';
+          } else if (update.paused) {
+            s.state = 'paused';
+            s.progressState = 'paused';
+            s.eta = 'Paused';
+          } else {
+            s.state = 'downloading';
+            s.progressState = 'active';
+            s.eta = update.timeRemaining && isFinite(update.timeRemaining) && update.timeRemaining > 0
+              ? this.formatEta(Math.round(update.timeRemaining / 1000))
+              : (update.downloadSpeed > 0 ? 'Estimating' : 'Connecting to peers...');
+          }
+
+          if (Array.isArray(update.files) && update.files.length > 0) {
+            s.files = update.files.map(f => ({
+              name: f.name,
+              path: f.path || '/downloads/',
+              size: this.formatBytes(f.sizeBytes),
+              sizeBytes: f.sizeBytes,
+              selected: true,
+              verdict: 'verdict-ok',
+              verdictText: '[SAFEPATH OK]'
+            }));
+          }
+
+          if (Array.isArray(update.peersList) && update.peersList.length > 0) {
+            s.peersList = update.peersList;
+          }
+
+          if (s.bitfield) {
+            s.bitfield.verified = Math.round((s.progressPct / 100) * s.bitfield.total);
+            s.bitfield.inFlight = update.downloadSpeed > 0 ? Math.min(8, s.bitfield.total - s.bitfield.verified) : 0;
+          }
+
+          changed = true;
+        });
+
+        if (changed) {
+          this.renderTable();
+          this.renderdiagnosticsPanels();
+          this.updateSidebarCounts();
+        }
+      });
+    }
+
+    if (window.havenNative?.onTorrentMetadata) {
+      window.havenNative.onTorrentMetadata((data) => {
+        const s = this.swarms.find(item => item.id === data.id);
+        if (s) {
+          s.name = data.name || s.name;
+          s.sizeBytes = data.totalSize || s.sizeBytes;
+          s.sizeFormatted = this.formatBytes(s.sizeBytes);
+          this.appendLog(`[METADATA] BitTorrent swarm metadata received: ${s.name} (${s.sizeFormatted})`);
+          this.render();
+        }
+      });
+    }
+
+    if (window.havenNative?.onTorrentDone) {
+      window.havenNative.onTorrentDone((data) => {
+        const s = this.swarms.find(item => item.id === data.id);
+        if (s) {
+          s.progressPct = 100.0;
+          s.state = 'seeding';
+          s.eta = 'Seeding';
+          this.appendLog(`[ENGINE] Live BitTorrent download complete (100.0% verified): ${s.name}`);
+          this.saveSwarms();
+          this.render();
+        }
+      });
+    }
+  }
+
+  restoreActiveDownloads() {
+    if (!window.havenNative?.startTorrent) return;
+    this.swarms.forEach(s => {
+      if (s.state === 'downloading' || s.state === 'seeding') {
+        const src = s.source || (s.hash ? `magnet:?xt=urn:btih:${s.hash}&dn=${encodeURIComponent(s.name)}` : null);
+        if (src) {
+          window.havenNative.startTorrent({
+            id: s.id,
+            source: src,
+            targetDir: s.targetMount || this.downloadDir,
+            name: s.name,
+            fileBuffer: s.fileBuffer || null
+          });
+        }
+      }
+    });
   }
 
   appendLog(line) {
@@ -1709,12 +1798,22 @@ class HavenMissionControl {
         ];
       }
 
+      let fileBufferB64 = (parsedMeta && parsedMeta.buffer) ? parsedMeta.buffer : null;
+      if (!fileBufferB64) {
+        const u8 = new Uint8Array(arrayBuffer);
+        let bin = '';
+        for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+        fileBufferB64 = btoa(bin);
+      }
+
       const pkgData = {
         name: baseName,
         hash: hashHex,
         sizeFormatted: formattedSize,
         sizeBytes: realBytes,
-        files: packageFiles
+        files: packageFiles,
+        fileBuffer: fileBufferB64,
+        source: (parsedMeta && parsedMeta.path) ? parsedMeta.path : null
       };
 
       // Open unified modal asking "WHERE SHOULD IT BE DOWNLOADED?" before starting

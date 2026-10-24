@@ -13,6 +13,13 @@ contextBridge.exposeInMainWorld('havenNative', {
   writeDownloadFile: (payload) => ipcRenderer.invoke('app:writeDownloadFile', payload),
   deletePayloadFile: (payload) => ipcRenderer.invoke('app:deletePayloadFile', payload),
   
+  // Real BitTorrent Engine IPC Handlers
+  startTorrent: (payload) => ipcRenderer.invoke('torrent:start', payload),
+  pauseTorrent: (id) => ipcRenderer.invoke('torrent:pause', id),
+  resumeTorrent: (id) => ipcRenderer.invoke('torrent:resume', id),
+  stopTorrent: (id) => ipcRenderer.invoke('torrent:stop', id),
+  deleteTorrent: (payload) => ipcRenderer.invoke('torrent:delete', payload),
+
   // Window Control Handlers
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
   maximizeWindow: () => ipcRenderer.invoke('window:maximize'),
@@ -24,6 +31,15 @@ contextBridge.exposeInMainWorld('havenNative', {
   getZoomFactor: () => webFrame.getZoomFactor(),
 
   // Event Listeners
+  onTorrentStatusBatch: (callback) => {
+    ipcRenderer.on('torrent:statusBatch', (_event, batch) => callback(batch));
+  },
+  onTorrentMetadata: (callback) => {
+    ipcRenderer.on('torrent:metadata', (_event, data) => callback(data));
+  },
+  onTorrentDone: (callback) => {
+    ipcRenderer.on('torrent:done', (_event, data) => callback(data));
+  },
   onUpdateAvailable: (callback) => {
     ipcRenderer.on('update:available', (_event, data) => callback(data));
   },

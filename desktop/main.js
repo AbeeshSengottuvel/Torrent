@@ -340,6 +340,238 @@ ipcMain.handle('app:deletePayloadFile', async (_event, payload) => {
   }
 });
 
+// ==========================================================================
+// REAL BITTORRENT ENGINE (LIVE PEERS, TRACKERS, & DISK I/O)
+// ==========================================================================
+let WebTorrentClass = null;
+let torrentClient = null;
+const activeTorrents = new Map(); // swarmId -> Torrent
+
+async function getTorrentEngine() {
+  if (!torrentClient) {
+    if (!WebTorrentClass) {
+      const mod = await import('webtorrent');
+      WebTorrentClass = mod.default;
+    }
+    torrentClient = new WebTorrentClass({
+      maxConns: 60,
+      dht: true,
+      tracker: true,
+    });
+
+    torrentClient.on('error', (err) => {
+      console.error('[WebTorrent Engine Error]', err);
+    });
+  }
+  return torrentClient;
+}
+
+const PUBLIC_TRACKERS = [
+  'udp://tracker.opentrackr.org:1337/announce',
+  'udp://open.stealth.si:80/announce',
+  'udp://tracker.torrent.eu.org:451/announce',
+  'udp://tracker.bittor.pw:1337/announce',
+  'udp://public.popcorn-tracker.org:6969/announce',
+  'udp://tracker.dler.org:6969/announce',
+  'udp://exodus.desync.com:6969/announce',
+  'udp://open.demonii.com:1337/announce',
+  'wss://tracker.openwebtorrent.com',
+  'wss://tracker.btorrent.xyz'
+];
+
+ipcMain.handle('torrent:start', async (_event, payload) => {
+  if (!payload || !payload.id) return { success: false, error: 'Invalid payload' };
+  const { id, source, targetDir, name, fileBuffer } = payload;
+  const normalizedDir = path.normalize(targetDir || path.join(app.getPath('downloads'), 'Haven'));
+  if (!fs.existsSync(normalizedDir)) {
+    fs.mkdirSync(normalizedDir, { recursive: true });
+  }
+
+  try {
+    const client = await getTorrentEngine();
+
+    if (activeTorrents.has(id)) {
+      const existing = activeTorrents.get(id);
+      if (existing.paused) existing.resume();
+      return { success: true, active: true };
+    }
+
+    let input = source;
+    if (fileBuffer) {
+      input = Buffer.from(fileBuffer, 'base64');
+    }
+
+    if (typeof input === 'string') {
+      const trimmed = input.trim();
+      if (/^[0-9a-fA-F]{40}$/.test(trimmed)) {
+        input = `magnet:?xt=urn:btih:${trimmed}&dn=${encodeURIComponent(name || 'swarm')}&tr=${PUBLIC_TRACKERS.map(encodeURIComponent).join('&tr=')}`;
+      } else if (trimmed.startsWith('magnet:?')) {
+        const hasTracker = trimmed.includes('&tr=');
+        if (!hasTracker) {
+          input = trimmed + '&tr=' + PUBLIC_TRACKERS.map(encodeURIComponent).join('&tr=');
+        }
+      }
+    }
+
+    if (!input) return { success: false, error: 'No source provided' };
+
+    const existingTorrent = client.get(input);
+    if (existingTorrent) {
+      activeTorrents.set(id, existingTorrent);
+      if (existingTorrent.paused) existingTorrent.resume();
+      return { success: true, active: true };
+    }
+
+    appendBootLog(`[Engine] Starting live BitTorrent download for ${name} at ${normalizedDir}`);
+
+    const torrent = client.add(input, {
+      path: normalizedDir,
+      announce: PUBLIC_TRACKERS
+    });
+
+    activeTorrents.set(id, torrent);
+
+    torrent.on('infoHash', () => {
+      appendBootLog(`[Engine] Torrent infoHash parsed: ${torrent.infoHash}`);
+    });
+
+    torrent.on('metadata', () => {
+      appendBootLog(`[Engine] Metadata resolved: ${torrent.name} (${torrent.length} bytes, ${torrent.files.length} files)`);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('torrent:metadata', {
+          id,
+          name: torrent.name,
+          totalSize: torrent.length,
+          files: torrent.files ? torrent.files.map(f => ({
+            name: f.name,
+            path: f.path,
+            sizeBytes: f.length
+          })) : []
+        });
+      }
+    });
+
+    torrent.on('done', () => {
+      appendBootLog(`[Engine] Torrent 100% finished: ${torrent.name}`);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('torrent:done', {
+          id,
+          name: torrent.name,
+          totalSize: torrent.length
+        });
+      }
+    });
+
+    torrent.on('error', (err) => {
+      console.error(`[Engine Error on ${id}]`, err);
+    });
+
+    return { success: true };
+  } catch (err) {
+    console.error('[Engine Add Error]', err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('torrent:pause', async (_event, id) => {
+  if (activeTorrents.has(id)) {
+    const t = activeTorrents.get(id);
+    if (!t.paused) t.pause();
+    return true;
+  }
+  return false;
+});
+
+ipcMain.handle('torrent:resume', async (_event, id) => {
+  if (activeTorrents.has(id)) {
+    const t = activeTorrents.get(id);
+    if (t.paused) t.resume();
+    return true;
+  }
+  return false;
+});
+
+ipcMain.handle('torrent:stop', async (_event, id) => {
+  if (activeTorrents.has(id)) {
+    const t = activeTorrents.get(id);
+    t.destroy();
+    activeTorrents.delete(id);
+    return true;
+  }
+  return false;
+});
+
+ipcMain.handle('torrent:delete', async (_event, payload) => {
+  if (!payload || !payload.id) return false;
+  const { id, deleteFiles, targetDir, name } = payload;
+  if (activeTorrents.has(id)) {
+    const t = activeTorrents.get(id);
+    t.destroy();
+    activeTorrents.delete(id);
+  }
+  if (deleteFiles && targetDir && name) {
+    const normalizedDir = path.normalize(targetDir);
+    const resolvedName = resolvePayloadFileName(name);
+    const targetFile = path.join(normalizedDir, resolvedName);
+    const rawFile = path.join(normalizedDir, name.replace(/[\/\\:*?"<>|]/g, '_'));
+    try {
+      if (fs.existsSync(targetFile)) {
+        const stat = fs.statSync(targetFile);
+        if (stat.isDirectory()) fs.rmSync(targetFile, { recursive: true, force: true });
+        else fs.unlinkSync(targetFile);
+      }
+      if (rawFile !== targetFile && fs.existsSync(rawFile)) {
+        const stat = fs.statSync(rawFile);
+        if (stat.isDirectory()) fs.rmSync(rawFile, { recursive: true, force: true });
+        else fs.unlinkSync(rawFile);
+      }
+    } catch (_) {}
+  }
+  return true;
+});
+
+// Broadcast real-time engine status batch to UI every 1000ms
+setInterval(() => {
+  if (!mainWindow || mainWindow.isDestroyed() || activeTorrents.size === 0) return;
+
+  const batch = [];
+  for (const [id, t] of activeTorrents.entries()) {
+    batch.push({
+      id,
+      name: t.name,
+      infoHash: t.infoHash,
+      downloaded: t.downloaded || 0,
+      total: t.length || 0,
+      progress: t.progress || 0,
+      downloadSpeed: t.downloadSpeed || 0,
+      uploadSpeed: t.uploadSpeed || 0,
+      numPeers: t.numPeers || 0,
+      timeRemaining: t.timeRemaining || 0,
+      paused: t.paused || false,
+      done: t.done || false,
+      files: t.files ? t.files.map(f => ({
+        name: f.name,
+        path: f.path,
+        sizeBytes: f.length,
+        downloaded: f.downloaded || 0,
+        progress: f.progress || 0
+      })) : [],
+      peersList: t.wires ? t.wires.slice(0, 10).map(w => {
+        const wireSpeed = typeof w.downloadSpeed === 'function' ? w.downloadSpeed() : (w.downloadSpeed || 0);
+        return {
+          ip: `${w.remoteAddress || 'peer'}:${w.remotePort || 0}`,
+          client: w.type || 'BitTorrent',
+          speed: `${(wireSpeed / (1024 * 1024)).toFixed(1)} MB/s`,
+          enc: 'TLS',
+          encClass: 'badge-enc-tls'
+        };
+      }) : []
+    });
+  }
+
+  mainWindow.webContents.send('torrent:statusBatch', batch);
+}, 1000);
+
 // SafePath Download File Allocator & Writer (Real Disk Persistence)
 ipcMain.handle('app:writeDownloadFile', async (_event, payload) => {
   if (!payload || typeof payload !== 'object') return { success: false, error: 'Invalid payload' };

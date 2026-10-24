@@ -33,3 +33,8 @@ Every third-party dependency in Cairn must be recorded in this file with written
 | `flutter_rust_bridge` | 2.x | MIT | Cross-process or in-process FFI bridge between Dart and Rust |
 | `protobuf` | 3.x | BSD-3-Clause | Protocol Buffer Dart runtime for UI IPC contract |
 | `lucide_icons` | latest | ISC | Clean, consistent, open-licensed iconography (1.5-2px stroke) |
+
+### Node.js / Desktop Shell Dependencies
+| Package | Version | License | Purpose / Justification | Security Review Notes |
+|---|---|---|---|---|
+| `webtorrent` | ^3.0.21 | MIT | Production P2P BitTorrent engine for live torrent/magnet downloading, piece verification, and disk writes | Pure JS/Node, fully open-source, zero analytics/telemetry, connects via backend process only (SR-03 compliant) |
