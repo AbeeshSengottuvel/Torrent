@@ -1,0 +1,9 @@
+[package]
+name = "cairn-fuzz"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cairn-safety = { path = "../cairn-safety" }
+cairn-core = { path = "../cairn-core" }

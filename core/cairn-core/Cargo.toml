@@ -1,0 +1,21 @@
+[package]
+name = "cairn-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cairn-safety = { path = "../cairn-safety" }
+tokio = { version = "1.36", features = ["sync", "time", "rt", "macros", "io-util"] }
+thiserror.workspace = true
+tracing.workspace = true
+prost.workspace = true
+zeroize.workspace = true
+ed25519-dalek.workspace = true
+sha2.workspace = true
+hmac.workspace = true
+subtle.workspace = true
+rusqlite.workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"

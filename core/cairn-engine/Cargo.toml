@@ -1,0 +1,13 @@
+[package]
+name = "cairn-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cairn-safety = { path = "../cairn-safety" }
+tokio = { workspace = true, features = ["sync", "time"] }
+thiserror.workspace = true
+tracing.workspace = true
+
+# NOTE: Unsafe is explicitly restricted to cairn-engine and platform crates with SAFETY comments (Rule 23)

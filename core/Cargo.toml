@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = [
+    "cairn-core",
+    "cairn-engine",
+    "cairn-safety",
+    "cairn-fuzz",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MPL-2.0"
+authors = ["Cairn Contributors"]
+
+[workspace.dependencies]
+thiserror = "1.0"
+tokio = { version = "1.36", features = ["full"] }
+prost = "0.12"
+prost-build = "0.12"
+tracing = "0.1"
+unicode-normalization = "0.1"
+zeroize = { version = "1.7", features = ["derive"] }
+ed25519-dalek = { version = "2.1", default-features = false }
+sha2 = "0.10"
+hmac = "0.12"
+subtle = "2.5"
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Compiler hardening profile as specified in docs/PLAN.md Section 23.2
+[profile.dev]
+overflow-checks = true
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+overflow-checks = true
+panic = "abort"
+strip = "debuginfo"

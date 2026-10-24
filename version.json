@@ -1,0 +1,7 @@
+{
+  "version": "1.0.0",
+  "name": "Haven - Secure BitTorrent Client",
+  "releaseDate": "2026-10-24",
+  "releaseNotes": "Initial release of Haven with Network Guard VPN killswitch, SafePath path traversal defense, and drag-and-drop torrent management.",
+  "downloadUrl": "https://github.com/AbeeshSengottuvel/Torrent/releases/latest"
+}

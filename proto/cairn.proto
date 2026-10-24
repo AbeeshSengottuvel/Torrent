@@ -1,0 +1,252 @@
+syntax = "proto3";
+
+package cairn.v1;
+
+// Service definition for UI <-> Core communication.
+// Enforces least-privilege, boundary checking, and security invariants (INV-01 to INV-14).
+service CairnCoreService {
+  // Queries
+  rpc ListTorrents (ListTorrentsRequest) returns (ListTorrentsResponse);
+  rpc GetTorrentDetails (GetTorrentDetailsRequest) returns (GetTorrentDetailsResponse);
+  rpc GetSessionStats (GetSessionStatsRequest) returns (SessionStats);
+  rpc GetSettings (GetSettingsRequest) returns (SettingsResponse);
+
+  // Control Actions
+  rpc AddTorrent (AddTorrentRequest) returns (AddTorrentResponse);
+  rpc ConfirmAddTorrent (ConfirmAddTorrentRequest) returns (ConfirmAddTorrentResponse);
+  rpc PauseTorrent (PauseTorrentRequest) returns (ActionResponse);
+  rpc ResumeTorrent (ResumeTorrentRequest) returns (ActionResponse);
+  rpc SetTorrentPriority (SetTorrentPriorityRequest) returns (ActionResponse);
+  rpc RemoveTorrent (RemoveTorrentRequest) returns (ActionResponse);
+
+  // Network Guard & Sensitive Settings
+  rpc SetNetworkGuard (SetNetworkGuardRequest) returns (ActionResponse);
+  rpc UpdateSettings (UpdateSettingsRequest) returns (ActionResponse);
+
+  // Event stream (bounded, coalesced, max 4Hz desktop / 1Hz mobile)
+  rpc SubscribeEvents (SubscribeEventsRequest) returns (stream CairnEvent);
+}
+
+enum TorrentState {
+  TORRENT_STATE_UNSPECIFIED = 0;
+  TORRENT_STATE_ADDED_PENDING = 1;
+  TORRENT_STATE_METADATA_FETCH = 2;
+  TORRENT_STATE_AWAITING_CONFIRM = 3; // Mandatory confirmation step (INV-04)
+  TORRENT_STATE_ALLOCATING = 4;
+  TORRENT_STATE_CHECKING = 5;
+  TORRENT_STATE_DOWNLOADING = 6;
+  TORRENT_STATE_PAUSED = 7;
+  TORRENT_STATE_COMPLETING = 8;
+  TORRENT_STATE_SEEDING = 9;
+  TORRENT_STATE_STOPPED = 10;
+  TORRENT_STATE_REJECTED = 11;
+  TORRENT_STATE_TIMED_OUT = 12;
+  TORRENT_STATE_CANCELLED = 13;
+  TORRENT_STATE_DISK_ERROR = 14;
+  TORRENT_STATE_SUSPECT = 15; // Engine crash during active processing (INV-14)
+}
+
+enum PrivacyMode {
+  PRIVACY_MODE_STANDARD = 0;
+  PRIVACY_MODE_PRIVATE = 1;
+  PRIVACY_MODE_STEALTH = 2;
+}
+
+enum NetworkGuardState {
+  NETWORK_GUARD_STANDBY = 0;
+  NETWORK_GUARD_WAITING_FOR_IFACE = 1;
+  NETWORK_GUARD_GUARDED_OK = 2;
+  NETWORK_GUARD_BLOCKED = 3;
+  NETWORK_GUARD_OVERRIDE = 4;
+}
+
+message TorrentFileItem {
+  uint32 index = 1;
+  string original_path = 2;
+  string sanitized_path = 3; // SafePath canonical name (SR-05)
+  uint64 size_bytes = 4;
+  bool selected = 5;
+  uint32 priority = 6; // 0 = skip, 1 = normal, 2 = high
+  float progress = 7;
+  bool is_risky_type = 8; // Warnings for executables, installers, scripts (INV-05)
+}
+
+message TorrentSummary {
+  string id = 1;
+  string info_hash = 2; // Hex formatted
+  string display_name = 3; // Rendered through SafeText in UI
+  TorrentState state = 4;
+  uint64 total_bytes = 5;
+  uint64 completed_bytes = 6;
+  float progress = 7;
+  uint64 download_speed_bps = 8;
+  uint64 upload_speed_bps = 9;
+  int64 eta_seconds = 10;
+  uint32 connected_peers = 11;
+  uint32 total_seeds = 12;
+  float ratio = 13;
+  string download_root = 14;
+  bool is_sequential = 15;
+  int64 added_at_unix = 16;
+}
+
+message ListTorrentsRequest {}
+
+message ListTorrentsResponse {
+  repeated TorrentSummary torrents = 1;
+}
+
+message GetTorrentDetailsRequest {
+  string torrent_id = 1;
+}
+
+message GetTorrentDetailsResponse {
+  TorrentSummary summary = 1;
+  repeated TorrentFileItem files = 2;
+  repeated string trackers = 3;
+  repeated PeerInfo peers = 4;
+}
+
+message PeerInfo {
+  string client = 1; // Rendered via SafeText
+  uint64 down_speed_bps = 2;
+  uint64 up_speed_bps = 3;
+  float progress = 4;
+  bool is_encrypted = 5;
+  // NOTE: Peer IP address is intentionally omitted or masked outside debug diagnostics (INV-08)
+}
+
+message AddTorrentRequest {
+  oneof source {
+    string magnet_uri = 1; // Limit: max 8 KiB
+    bytes torrent_bytes = 2; // Limit: max 16 MiB
+  }
+  string picker_token = 3; // Token from Core-recorded folder picker (SR-05)
+}
+
+message AddTorrentResponse {
+  string torrent_id = 1;
+  TorrentState state = 2; // Typically AWAITING_CONFIRM or METADATA_FETCH
+  string name = 3;
+  uint64 total_bytes = 4;
+  repeated TorrentFileItem files = 5;
+}
+
+message ConfirmAddTorrentRequest {
+  string torrent_id = 1;
+  repeated uint32 deselected_file_indices = 2;
+  bool start_paused = 3;
+  bool sequential = 4;
+  string custom_name = 5;
+}
+
+message ConfirmAddTorrentResponse {
+  bool accepted = 1;
+  TorrentState state = 2;
+}
+
+message PauseTorrentRequest {
+  string torrent_id = 1;
+}
+
+message ResumeTorrentRequest {
+  string torrent_id = 1;
+}
+
+message SetTorrentPriorityRequest {
+  string torrent_id = 1;
+  uint32 priority = 2;
+}
+
+message RemoveTorrentRequest {
+  string torrent_id = 1;
+  bool delete_data = 2; // Requires UI confirmation dialog
+}
+
+message SetNetworkGuardRequest {
+  bool enabled = 1;
+  string interface_guid = 2;
+  bool enable_kill_switch = 3;
+  string step_up_confirmation_token = 4; // Required for sensitive settings (SR-11)
+}
+
+message UpdateSettingsRequest {
+  PrivacyMode privacy_mode = 1;
+  uint32 global_download_limit_kbps = 2;
+  uint32 global_upload_limit_kbps = 3;
+  bool upnp_enabled = 4;
+  bool dht_enabled = 5;
+  bool require_encryption = 6;
+  string step_up_confirmation_token = 7;
+}
+
+message SettingsResponse {
+  PrivacyMode privacy_mode = 1;
+  NetworkGuardState network_guard_state = 2;
+  string bound_interface_name = 3;
+  uint32 global_download_limit_kbps = 4;
+  uint32 global_upload_limit_kbps = 5;
+  bool upnp_enabled = 6;
+  bool dht_enabled = 7;
+  bool require_encryption = 8;
+}
+
+message GetSettingsRequest {}
+
+message SessionStats {
+  uint64 total_down_bytes = 1;
+  uint64 total_up_bytes = 2;
+  uint64 current_down_speed_bps = 3;
+  uint64 current_up_speed_bps = 4;
+  uint32 active_torrents = 5;
+  uint32 dht_nodes = 6;
+  uint64 free_disk_space_bytes = 7;
+  NetworkGuardState netguard_state = 8;
+}
+
+message ActionResponse {
+  bool success = 1;
+  string error_code = 2;
+  string error_message = 3;
+}
+
+message SubscribeEventsRequest {
+  uint32 client_version = 1;
+  string session_token = 2; // 256-bit constant-time verified (SR-09)
+}
+
+message CairnEvent {
+  int64 timestamp_unix = 1;
+  oneof event {
+    TorrentDeltaEvent torrent_delta = 2;
+    TorrentStateChangedEvent state_changed = 3;
+    NetworkGuardAlertEvent netguard_alert = 4;
+    EngineAlertEvent engine_alert = 5;
+  }
+}
+
+message TorrentDeltaEvent {
+  string torrent_id = 1;
+  float progress = 2;
+  uint64 download_speed_bps = 3;
+  uint64 upload_speed_bps = 4;
+  int64 eta_seconds = 5;
+  uint32 connected_peers = 6;
+}
+
+message TorrentStateChangedEvent {
+  string torrent_id = 1;
+  TorrentState old_state = 2;
+  TorrentState new_state = 3;
+}
+
+message NetworkGuardAlertEvent {
+  NetworkGuardState state = 1;
+  string message = 2;
+  bool traffic_blocked = 3;
+}
+
+message EngineAlertEvent {
+  string alert_type = 1;
+  string message = 2; // Scrubbed of IPs/tokens/secrets
+}
