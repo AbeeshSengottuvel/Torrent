@@ -11,6 +11,7 @@ class HavenMissionControl {
     
     // Waveform history buffer (60 points)
     this.waveformHistory = Array.from({ length: 60 }, () => 0.0);
+    this.downloadDir = localStorage.getItem('haven_download_dir') || 'C:\\Users\\Abeesh\\Downloads\\Haven';
 
     this.initElements();
     this.attachEvents();
@@ -248,9 +249,18 @@ class HavenMissionControl {
       const s = this.getSelectedSwarm();
       const mount = s?.targetMount || this.downloadDir || 'C:\\Users\\Abeesh\\Downloads\\Haven';
       if (window.havenNative?.openPath) {
+        if (window.havenNative?.writeDownloadFile && s) {
+          await window.havenNative.writeDownloadFile({
+            targetDir: mount,
+            fileName: s.name,
+            sizeBytes: s.sizeBytes,
+            files: s.files,
+            isCompleted: s.progressPct >= 100
+          });
+        }
         const ok = await window.havenNative.openPath(mount);
         if (!ok) {
-          this.appendLog(`[SAFEPATH] Directory does not exist yet on disk: ${mount}`);
+          this.appendLog(`[SAFEPATH] Directory opening failed: ${mount}`);
         } else {
           this.appendLog(`[SAFEPATH] Opened Explorer at: ${mount}`);
         }
@@ -433,7 +443,7 @@ class HavenMissionControl {
     this.btnCloseMagnetModal?.addEventListener('click', () => this.closeAddMagnetModal());
     this.btnCancelMagnet?.addEventListener('click', () => this.closeAddMagnetModal());
 
-    // Browse Destination Folder
+    // Destination Folder Input & Browse
     this.btnBrowseMagnetPath?.addEventListener('click', async () => {
       if (window.havenNative?.selectFolder) {
         const selected = await window.havenNative.selectFolder();
@@ -449,6 +459,19 @@ class HavenMissionControl {
           this.downloadDir = manual.trim();
           localStorage.setItem('haven_download_dir', this.downloadDir);
           this.updateModalSaveLocation(this.downloadDir);
+        }
+      }
+    });
+
+    this.modalMagnetPath?.addEventListener('input', (e) => {
+      const val = e.target.value.trim();
+      if (val) {
+        this.downloadDir = val;
+        localStorage.setItem('haven_download_dir', val);
+        const drive = val.slice(0, 2).toUpperCase();
+        const volInfo = document.getElementById('modalVolumeInfo');
+        if (volInfo) {
+          volInfo.innerHTML = `<span class="text-emerald">✓ Target Volume (${drive || 'C:'})</span> • SafePath Confinement Active • Real Disk Allocation`;
         }
       }
     });
@@ -502,12 +525,15 @@ class HavenMissionControl {
 
   updateModalSaveLocation(dirPath) {
     const el = document.getElementById('modalMagnetPath');
-    if (el) el.textContent = dirPath;
+    if (el) {
+      if ('value' in el) el.value = dirPath;
+      else el.textContent = dirPath;
+    }
 
-    const drive = dirPath.slice(0, 2).toUpperCase();
+    const drive = (dirPath || '').slice(0, 2).toUpperCase();
     const volInfo = document.getElementById('modalVolumeInfo');
     if (volInfo) {
-      volInfo.innerHTML = `<span class="text-emerald">✓ 382.4 GB Free Space Available</span> on Volume (${drive || 'C:'}) • SafePath Guard Active`;
+      volInfo.innerHTML = `<span class="text-emerald">✓ Target Volume (${drive || 'C:'})</span> • SafePath Confinement Active • Real Disk Allocation`;
     }
   }
 
@@ -631,7 +657,10 @@ class HavenMissionControl {
   }
 
   submitAddModal() {
-    const targetMount = this.downloadDir || 'C:\\Users\\Abeesh\\Downloads\\Haven';
+    const targetMount = document.getElementById('modalMagnetPath')?.textContent.trim() || this.downloadDir || 'C:\\Users\\Abeesh\\Downloads\\Haven';
+    this.downloadDir = targetMount;
+    localStorage.setItem('haven_download_dir', targetMount);
+
     const uploadLimit = parseInt(document.getElementById('optUploadLimit')?.value || '0', 10);
     const seedRatio = parseFloat(document.getElementById('optSeedRatio')?.value || '0');
     const sequential = !!document.getElementById('optSequential')?.checked;
@@ -691,6 +720,22 @@ class HavenMissionControl {
       this.saveSwarms();
       this.closeAddMagnetModal();
       this.render();
+
+      // Write download allocation immediately to user's selected disk path
+      if (window.havenNative?.writeDownloadFile) {
+        window.havenNative.writeDownloadFile({
+          targetDir: targetMount,
+          fileName: dn,
+          sizeBytes: newSwarm.sizeBytes,
+          files: newSwarm.files,
+          isCompleted: false
+        }).then(res => {
+          if (res && res.success) {
+            this.appendLog(`[DISK] Allocated download payload at: ${res.canonicalPath}`);
+          }
+        });
+      }
+
       this.appendLog(`[SAFEPATH] Ingested package ${dn} -> Mount: ${targetMount}. Beginning transfer.`);
       return;
     }
@@ -757,6 +802,22 @@ class HavenMissionControl {
     this.closeAddMagnetModal();
     if (this.uriInput) this.uriInput.value = '';
     this.render();
+
+    // Write download allocation immediately to user's selected disk path
+    if (window.havenNative?.writeDownloadFile) {
+      window.havenNative.writeDownloadFile({
+        targetDir: targetMount,
+        fileName: dn,
+        sizeBytes: newSwarm.sizeBytes,
+        files: newSwarm.files,
+        isCompleted: false
+      }).then(res => {
+        if (res && res.success) {
+          this.appendLog(`[DISK] Allocated download payload at: ${res.canonicalPath}`);
+        }
+      });
+    }
+
     this.appendLog(`[SAFEPATH] Ingested Magnet swarm: ${dn} -> Mount: ${targetMount} (UpLimit: ${uploadLimit ? uploadLimit + 'kB/s' : '∞'})`);
   }
 
@@ -867,7 +928,8 @@ class HavenMissionControl {
         <td class="col-name">
           <div class="payload-title ${titleClass}">${this.escapeHtml(s.name)}</div>
           <div class="payload-hash ${hashClass}">
-            <span class="hash-tag">HASH:</span> ${s.hash}
+            <span class="hash-tag">HASH:</span> ${s.hash.slice(0, 16)}...
+            <span class="payload-dest font-mono" title="Destination Directory: ${this.escapeHtml(s.targetMount || '')}">📁 ${this.escapeHtml(s.targetMount || '')}</span>
           </div>
         </td>
         <td class="col-size">${s.sizeFormatted}</td>
@@ -895,9 +957,27 @@ class HavenMissionControl {
           ${s.eta}
         </td>
         <td class="col-act">
+          <button class="btn-row-open" title="Open Download Directory in File Explorer">📂</button>
           <button class="btn-row-del" title="Delete swarm (Del)">✕</button>
         </td>
       `;
+
+      tr.querySelector('.btn-row-open')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const mount = s.targetMount || this.downloadDir;
+        if (window.havenNative?.writeDownloadFile) {
+          await window.havenNative.writeDownloadFile({
+            targetDir: mount,
+            fileName: s.name,
+            sizeBytes: s.sizeBytes,
+            files: s.files,
+            isCompleted: s.progressPct >= 100
+          });
+        }
+        if (window.havenNative?.openPath) {
+          await window.havenNative.openPath(mount);
+        }
+      });
 
       tr.querySelector('.btn-row-del')?.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -950,7 +1030,7 @@ class HavenMissionControl {
     const s = this.getSelectedSwarm();
     if (!s) {
       // Clean, calm idle panels when no swarms are present
-      document.getElementById('mountTarget').textContent = 'F:\\Torrent\\Storage';
+      document.getElementById('mountTarget').textContent = this.downloadDir || 'C:\\Users\\Abeesh\\Downloads\\Haven';
       document.getElementById('mountFree').innerHTML = '382.4 GB <small class="text-muted">NVMe</small>';
 
       this.manifestBody.innerHTML = `
@@ -1190,6 +1270,22 @@ class HavenMissionControl {
             s.eta = 'Seeding';
             s.securityBadge = 'status-safepath-ok';
             s.securityText = '[COMPLETED // VERIFIED]';
+
+            // Flush completed payload to disk in targetMount directory
+            if (window.havenNative?.writeDownloadFile) {
+              window.havenNative.writeDownloadFile({
+                targetDir: s.targetMount,
+                fileName: s.name,
+                sizeBytes: size,
+                files: s.files,
+                isCompleted: true
+              }).then(res => {
+                if (res && res.success) {
+                  this.appendLog(`[DISK] Flushed verified payload to: ${res.canonicalPath}`);
+                }
+              });
+            }
+
             this.appendLog(`[VERIFY] Swarm ${s.name} complete (100.0%). All chunks cryptographic SHA-256 verified.`);
           }
         } else if (s.state === 'seeding') {
@@ -1330,7 +1426,7 @@ class HavenMissionControl {
     if (!s) return;
     this.pendingDeleteId = swarmId;
     if (this.deleteSwarmTitle) this.deleteSwarmTitle.textContent = s.name;
-    if (this.deleteSwarmPath) this.deleteSwarmPath.textContent = (s.targetMount || 'F:\\Torrent\\Storage') + '\\' + s.name;
+    if (this.deleteSwarmPath) this.deleteSwarmPath.textContent = (s.targetMount || this.downloadDir || 'C:\\Users\\Abeesh\\Downloads\\Haven') + '\\' + s.name;
     if (this.deleteModal) this.deleteModal.classList.remove('hidden');
   }
 

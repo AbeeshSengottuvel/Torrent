@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('havenNative', {
   checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
   openPath: (folderPath) => ipcRenderer.invoke('app:openPath', folderPath),
+  showItemInFolder: (filePath) => ipcRenderer.invoke('app:showItemInFolder', filePath),
+  writeDownloadFile: (payload) => ipcRenderer.invoke('app:writeDownloadFile', payload),
   
   // Window Control Handlers
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
