@@ -215,7 +215,7 @@ function registerSecureHandler(channel, handler) {
       return await handler(event, ...sanitizedArgs);
     } catch (err) {
       console.error(`[IPC Error on ${channel}]`, err);
-      return { success: false, error: err.message || 'Internal IPC error' };
+      throw new Error(`[IPC:${channel}] ${err.message || 'Operation failed'}`);
     }
   });
 }
@@ -329,38 +329,7 @@ function resolvePayloadFileName(rawName, files) {
   }
 }
 
-function allocateDiskFile(filePath, sizeBytes, isVideo = true) {
-  const fd = fs.openSync(filePath, 'w');
-  try {
-    // Write valid ISO Base Media File Format (MP4) container header
-    if (isVideo || filePath.toLowerCase().endsWith('.mp4')) {
-      const mp4Box = Buffer.alloc(1024);
-      // Box 1: ftyp box
-      mp4Box.writeUInt32BE(24, 0); // box length 24
-      mp4Box.write('ftyp', 4, 4, 'ascii');
-      mp4Box.write('isom', 8, 4, 'ascii'); // major brand
-      mp4Box.writeUInt32BE(0x00000200, 12); // minor version
-      mp4Box.write('isomiso2mp41', 16, 12, 'ascii'); // compatible brands
-      // Box 2: mdat media data placeholder box
-      mp4Box.writeUInt32BE(1000, 28);
-      mp4Box.write('mdat', 32, 4, 'ascii');
-      fs.writeSync(fd, mp4Box, 0, mp4Box.length, 0);
-    } else {
-      const header = Buffer.from(`[HAVEN SECURE BITTORRENT CLIENT // VERIFIED FILE PAYLOAD]\nTarget: ${path.basename(filePath)}\nAllocated: ${sizeBytes || 0} bytes\n`);
-      fs.writeSync(fd, header, 0, header.length, 0);
-    }
-
-    // Pre-allocate genuine file length on NTFS disk
-    const targetSize = Math.max(1024, Number(sizeBytes) || (750 * 1024 * 1024));
-    if (targetSize > 0 && targetSize <= 100 * 1024 * 1024 * 1024) {
-      fs.ftruncateSync(fd, targetSize);
-    }
-  } finally {
-    try {
-      fs.closeSync(fd);
-    } catch (_) {}
-  }
-}
+// Authentic BitTorrent filesystem writes are handled directly by the WebTorrent storage engine.
 
 registerSecureHandler('app:deletePayloadFile', async (_event, payload) => {
   if (!payload || typeof payload !== 'object') return false;
@@ -474,6 +443,7 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
     if (existingTorrent) {
       activeTorrents.set(id, existingTorrent);
       if (existingTorrent.paused) existingTorrent.resume();
+      wakeHeartbeatIfNeeded();
       return { success: true, active: true };
     }
 
@@ -485,6 +455,7 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
     });
 
     activeTorrents.set(id, torrent);
+    wakeHeartbeatIfNeeded();
 
     torrent.on('infoHash', () => {
       appendBootLog(`[Engine] Torrent infoHash parsed: ${torrent.infoHash}`);
@@ -541,6 +512,7 @@ registerSecureHandler('torrent:resume', async (_event, id) => {
   if (typeof id === 'string' && activeTorrents.has(id)) {
     const t = activeTorrents.get(id);
     if (t.paused) t.resume();
+    wakeHeartbeatIfNeeded();
     return true;
   }
   return false;
@@ -551,6 +523,7 @@ registerSecureHandler('torrent:stop', async (_event, id) => {
     const t = activeTorrents.get(id);
     t.destroy();
     activeTorrents.delete(id);
+    diskBytesCache.delete(id);
     return true;
   }
   return false;
@@ -559,6 +532,7 @@ registerSecureHandler('torrent:stop', async (_event, id) => {
 registerSecureHandler('torrent:delete', async (_event, payload) => {
   if (!payload || !payload.id) return false;
   const { id, deleteFiles, targetDir, name } = payload;
+  diskBytesCache.delete(id);
   if (activeTorrents.has(id)) {
     const t = activeTorrents.get(id);
     t.destroy();
@@ -585,31 +559,100 @@ registerSecureHandler('torrent:delete', async (_event, payload) => {
   return true;
 });
 
-// Throttled 500ms Swarm Heartbeat (adaptive power-save when minimized)
-let statsTimer = null;
-let lastActiveCount = 0;
+// Ground-Truth Asynchronous Disk Byte Verifier (Cached every 2500ms to preserve 60fps)
+const diskBytesCache = new Map(); // swarmId -> { bytes: number, lastChecked: number }
 
-function broadcastSwarmHeartbeat() {
+async function getTorrentBytesOnDisk(torrentId, torrent) {
+  if (!torrent) return 0;
+  const now = Date.now();
+  const cached = diskBytesCache.get(torrentId);
+  if (cached && (now - cached.lastChecked < 2500)) {
+    return cached.bytes;
+  }
+
+  try {
+    let totalBytes = 0;
+    if (Array.isArray(torrent.files) && torrent.files.length > 0) {
+      for (const f of torrent.files) {
+        if (!f.path) continue;
+        const fullFilePath = path.join(torrent.path, f.path);
+        try {
+          const stat = await fs.promises.stat(fullFilePath);
+          totalBytes += stat.size;
+        } catch (_) {}
+      }
+    } else if (torrent.name && torrent.path) {
+      const singlePath = path.join(torrent.path, torrent.name);
+      try {
+        const stat = await fs.promises.stat(singlePath);
+        totalBytes = stat.size;
+      } catch (_) {}
+    }
+    diskBytesCache.set(torrentId, { bytes: totalBytes, lastChecked: now });
+    return totalBytes;
+  } catch (_) {
+    return cached ? cached.bytes : 0;
+  }
+}
+
+// Adaptive 500ms Ground-Truth Swarm Heartbeat
+let statsTimer = null;
+
+function wakeHeartbeatIfNeeded() {
+  if (statsTimer === null && activeTorrents.size > 0) {
+    broadcastSwarmHeartbeat();
+  }
+}
+
+async function broadcastSwarmHeartbeat() {
+  if (statsTimer) {
+    clearTimeout(statsTimer);
+    statsTimer = null;
+  }
+
   if (!mainWindow || mainWindow.isDestroyed()) return;
 
-  const activeCount = activeTorrents.size;
-  if (activeCount === 0 && lastActiveCount === 0) {
-    statsTimer = setTimeout(broadcastSwarmHeartbeat, 1000);
+  // Law 1: Pause heartbeat completely when zero swarms are active
+  if (activeTorrents.size === 0) {
     return;
   }
-  lastActiveCount = activeCount;
 
-  // Adaptive interval: 500ms standard, 2000ms when minimized to prevent main-thread strain
+  // Adaptive throttling: 500ms when focused/visible, 2000ms when minimized
   const nextInterval = mainWindow.isMinimized() ? 2000 : 500;
 
   try {
     const batch = [];
     for (const [id, t] of activeTorrents.entries()) {
+      const totalPieces = t.pieces ? t.pieces.length : 0;
+      const pieceLength = t.pieceLength || 0;
+      const bytesOnDisk = await getTorrentBytesOnDisk(id, t);
+
+      const livePeers = t.wires ? t.wires.slice(0, 8).map(w => {
+        const clientVer = (w.peerExtendedHandshake && w.peerExtendedHandshake.v) 
+          ? w.peerExtendedHandshake.v 
+          : (w.type || 'BitTorrent');
+        const wireSpeed = typeof w.downloadSpeed === 'function' ? w.downloadSpeed() : 0;
+        const wireUpSpeed = typeof w.uploadSpeed === 'function' ? w.uploadSpeed() : 0;
+        return {
+          address: `${w.remoteAddress || 'peer'}:${w.remotePort || 0}`,
+          client: clientVer,
+          downloaded: w.downloaded || 0,
+          uploaded: w.uploaded || 0,
+          speed: wireSpeed,
+          upSpeed: wireUpSpeed
+        };
+      }) : [];
+
       batch.push({
         id,
         name: t.name || 'swarm',
         infoHash: t.infoHash || '',
-        downloaded: t.downloaded || 0,
+        pieceLength,
+        totalPieces,
+        verifiedBytes: t.downloaded || 0,
+        receivedBytes: t.received || 0,
+        uploadedBytes: t.uploaded || 0,
+        bytesOnDisk,
         total: t.length || 0,
         progress: t.progress || 0,
         downloadSpeed: t.downloadSpeed || 0,
@@ -625,16 +668,7 @@ function broadcastSwarmHeartbeat() {
           downloaded: f.downloaded || 0,
           progress: f.progress || 0
         })) : [],
-        peersList: t.wires ? t.wires.slice(0, 8).map(w => {
-          const wireSpeed = typeof w.downloadSpeed === 'function' ? w.downloadSpeed() : (w.downloadSpeed || 0);
-          return {
-            ip: `${w.remoteAddress || 'peer'}:${w.remotePort || 0}`,
-            client: w.type || 'BitTorrent',
-            speed: `${(wireSpeed / (1024 * 1024)).toFixed(1)} MB/s`,
-            enc: 'TLS',
-            encClass: 'badge-enc-tls'
-          };
-        }) : []
+        livePeers
       });
     }
 
@@ -642,73 +676,11 @@ function broadcastSwarmHeartbeat() {
   } catch (err) {
     console.error('[Heartbeat Error]', err);
   } finally {
-    statsTimer = setTimeout(broadcastSwarmHeartbeat, nextInterval);
+    if (activeTorrents.size > 0 && mainWindow && !mainWindow.isDestroyed()) {
+      statsTimer = setTimeout(broadcastSwarmHeartbeat, nextInterval);
+    }
   }
 }
-
-// Start heartbeat loop immediately
-statsTimer = setTimeout(broadcastSwarmHeartbeat, 500);
-
-// SafePath Download File Allocator & Writer (Real Disk Persistence)
-registerSecureHandler('app:writeDownloadFile', async (_event, payload) => {
-  if (!payload || typeof payload !== 'object') return { success: false, error: 'Invalid payload' };
-  const { targetDir, fileName, sizeBytes, files, isCompleted } = payload;
-  if (!targetDir || typeof targetDir !== 'string') return { success: false, error: 'Invalid target directory' };
-
-  try {
-    const normalizedDir = path.normalize(targetDir);
-    if (!fs.existsSync(normalizedDir)) {
-      fs.mkdirSync(normalizedDir, { recursive: true });
-    }
-
-    const rawName = (fileName || 'download-payload').trim();
-    const safeName = rawName.replace(/[\/\\:*?"<>|]/g, '_');
-
-    // Multi-file package support
-    if (Array.isArray(files) && files.length > 1) {
-      const packageDir = path.join(normalizedDir, safeName);
-      if (!fs.existsSync(packageDir)) {
-        fs.mkdirSync(packageDir, { recursive: true });
-      }
-
-      for (const f of files) {
-        const safeSubName = (f.name || 'file.dat').replace(/[\/\\:*?"<>|]/g, '_');
-        const subPath = path.join(packageDir, safeSubName);
-        if (!fs.existsSync(subPath) || isCompleted) {
-          const subSize = typeof f.sizeBytes === 'number' ? f.sizeBytes : 10 * 1024 * 1024;
-          allocateDiskFile(subPath, subSize, /\.(mp4|mkv|avi|mov)$/i.test(safeSubName));
-        }
-      }
-      return { success: true, canonicalPath: packageDir };
-    }
-
-    // Single-file payload
-    const resolvedName = resolvePayloadFileName(safeName, files);
-    const targetFile = path.join(normalizedDir, resolvedName);
-
-    // Clean up any old extensionless or .BZ stub file created previously
-    const rawStubPath = path.join(normalizedDir, safeName);
-    if (rawStubPath !== targetFile && fs.existsSync(rawStubPath)) {
-      try {
-        const stat = fs.statSync(rawStubPath);
-        if (stat.size < 50000) { // Old small stub
-          fs.unlinkSync(rawStubPath);
-        }
-      } catch (_) {}
-    }
-
-    // Pre-allocate real file on disk if missing or completing
-    if (!fs.existsSync(targetFile) || isCompleted) {
-      const allocSize = Number(sizeBytes) || (750 * 1024 * 1024);
-      allocateDiskFile(targetFile, allocSize, targetFile.toLowerCase().endsWith('.mp4'));
-    }
-
-    return { success: true, canonicalPath: targetFile };
-  } catch (err) {
-    console.error('[Download Write Error]', err);
-    return { success: false, error: err.message };
-  }
-});
 
 registerSecureHandler('app:checkForUpdates', async () => {
   return {

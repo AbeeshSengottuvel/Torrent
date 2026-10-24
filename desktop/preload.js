@@ -75,13 +75,7 @@ const nativeBridge = {
     return ipcRenderer.invoke('app:showItemInFolder', filePath.trim());
   },
 
-  // File Allocator & Eraser
-  writeDownloadFile: (payload) => {
-    if (!payload || typeof payload !== 'object') {
-      return Promise.reject(new Error('[SafePath] Invalid download allocation payload.'));
-    }
-    return ipcRenderer.invoke('app:writeDownloadFile', payload);
-  },
+  // File Eraser
 
   deletePayloadFile: (payload) => {
     if (!payload || typeof payload !== 'object') {

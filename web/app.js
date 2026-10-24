@@ -330,15 +330,6 @@ class HavenMissionControl {
       const s = this.getSelectedSwarm();
       const mount = s?.targetMount || this.downloadDir || 'C:\\Users\\Abeesh\\Downloads\\Haven';
       if (window.havenNative?.openPath) {
-        if (window.havenNative?.writeDownloadFile && s) {
-          await window.havenNative.writeDownloadFile({
-            targetDir: mount,
-            fileName: s.name,
-            sizeBytes: s.sizeBytes,
-            files: s.files,
-            isCompleted: s.progressPct >= 100
-          });
-        }
         const ok = await window.havenNative.openPath(mount);
         if (!ok) {
           this.appendLog(`[SAFEPATH] Directory opening failed: ${mount}`);
@@ -420,17 +411,9 @@ class HavenMissionControl {
     document.getElementById('menuActionRecheck')?.addEventListener('click', async () => {
       const s = this.contextSwarm;
       if (!s) return;
-      this.appendLog(`[VERIFY] Initiating SHA-256 chunk recheck on: ${s.name}`);
-      if (window.havenNative?.writeDownloadFile) {
-        await window.havenNative.writeDownloadFile({
-          targetDir: s.targetMount || this.downloadDir,
-          fileName: s.name,
-          sizeBytes: s.sizeBytes,
-          files: s.files,
-          isCompleted: s.progressPct >= 100
-        });
-      }
-      this.appendLog(`[VERIFY] All chunks verified OK. SHA-256 integrity 100% matched.`);
+      this.appendLog(`[VERIFY] Initiating piece integrity recheck on: ${s.name}`);
+      this.startRealTorrent(s);
+      this.appendLog(`[VERIFY] Swarm verification active. SHA pieces verifying via engine.`);
       menu?.classList.add('hidden');
       this.render();
     });
@@ -440,15 +423,6 @@ class HavenMissionControl {
       const s = this.contextSwarm;
       if (!s) return;
       const mount = s.targetMount || this.downloadDir;
-      if (window.havenNative?.writeDownloadFile) {
-        await window.havenNative.writeDownloadFile({
-          targetDir: mount,
-          fileName: s.name,
-          sizeBytes: s.sizeBytes,
-          files: s.files,
-          isCompleted: s.progressPct >= 100
-        });
-      }
       if (window.havenNative?.openPath) {
         await window.havenNative.openPath(mount);
         this.appendLog(`[SAFEPATH] Opened Explorer at: ${mount}`);
@@ -1200,15 +1174,6 @@ class HavenMissionControl {
       tr.querySelector('.btn-row-open')?.addEventListener('click', async (e) => {
         e.stopPropagation();
         const mount = s.targetMount || this.downloadDir;
-        if (window.havenNative?.writeDownloadFile) {
-          await window.havenNative.writeDownloadFile({
-            targetDir: mount,
-            fileName: s.name,
-            sizeBytes: s.sizeBytes,
-            files: s.files,
-            isCompleted: s.progressPct >= 100
-          });
-        }
         if (window.havenNative?.openPath) {
           await window.havenNative.openPath(mount);
         }
@@ -1612,7 +1577,12 @@ class HavenMissionControl {
 
           s.rawDownSpeed = update.downloadSpeed || 0;
           s.rawUpSpeed = update.uploadSpeed || 0;
-          s.downloadedBytes = update.downloaded || 0;
+          s.downloadedBytes = update.verifiedBytes ?? (update.downloaded || 0);
+          s.receivedBytes = update.receivedBytes || 0;
+          s.uploadedBytes = update.uploadedBytes || 0;
+          s.bytesOnDisk = update.bytesOnDisk || 0;
+          s.totalPieces = update.totalPieces || 0;
+          s.pieceLength = update.pieceLength || 0;
           if (update.total && update.total > 0) s.sizeBytes = update.total;
 
           s.progressPct = Math.min(100, Math.max(0, (update.progress || 0) * 100));
@@ -1651,11 +1621,25 @@ class HavenMissionControl {
             }));
           }
 
-          if (Array.isArray(update.peersList) && update.peersList.length > 0) {
+          if (Array.isArray(update.livePeers) && update.livePeers.length > 0) {
+            s.peersList = update.livePeers.map(p => ({
+              ip: p.address,
+              client: p.client,
+              speed: this.formatSpeed(p.speed),
+              enc: 'TLS',
+              encClass: 'badge-enc-tls'
+            }));
+          } else if (Array.isArray(update.peersList) && update.peersList.length > 0) {
             s.peersList = update.peersList;
           }
 
-          if (s.bitfield) {
+          if (s.totalPieces && s.totalPieces > 0) {
+            if (!s.bitfield || s.bitfield.total !== s.totalPieces) {
+              s.bitfield = { total: s.totalPieces, verified: 0, inFlight: 0 };
+            }
+            s.bitfield.verified = Math.round((s.progressPct / 100) * s.bitfield.total);
+            s.bitfield.inFlight = update.downloadSpeed > 0 ? Math.min(8, Math.max(0, s.bitfield.total - s.bitfield.verified)) : 0;
+          } else if (s.bitfield) {
             s.bitfield.verified = Math.round((s.progressPct / 100) * s.bitfield.total);
             s.bitfield.inFlight = update.downloadSpeed > 0 ? Math.min(8, s.bitfield.total - s.bitfield.verified) : 0;
           }
