@@ -84,6 +84,9 @@ const nativeBridge = {
     return ipcRenderer.invoke('app:deletePayloadFile', payload);
   },
 
+  // SafePath Volume Query
+  getVolumeInfo: (targetPath) => ipcRenderer.invoke('safepath:getVolumeInfo', targetPath || ''),
+
   // BitTorrent Swarm Lifecycle Operations
   startTorrent: (payload) => {
     if (!payload || typeof payload !== 'object' || !isNonEmptyString(payload.id)) {
@@ -105,6 +108,18 @@ const nativeBridge = {
   stopTorrent: (id) => {
     if (!isNonEmptyString(id)) return Promise.resolve(false);
     return ipcRenderer.invoke('torrent:stop', id);
+  },
+
+  recheckTorrent: (id) => {
+    if (!isNonEmptyString(id)) return Promise.resolve(false);
+    return ipcRenderer.invoke('torrent:recheck', id);
+  },
+
+  selectTorrentFiles: (payload) => {
+    if (!payload || typeof payload !== 'object' || !isNonEmptyString(payload.id)) {
+      return Promise.resolve(false);
+    }
+    return ipcRenderer.invoke('torrent:selectFiles', payload);
   },
 
   deleteTorrent: (payload) => {

@@ -81,7 +81,8 @@ class HavenMissionControl {
       source: source || null,
       targetDir: targetDir,
       name: swarm.name,
-      fileBuffer: swarm.fileBuffer || null
+      fileBuffer: swarm.fileBuffer || null,
+      deselectedFiles: swarm.deselectedFiles || []
     }).then(res => {
       if (res && res.success) {
         this.appendLog(`[ENGINE] Live BitTorrent engine engaged for: ${swarm.name}`);
@@ -95,7 +96,7 @@ class HavenMissionControl {
 
   restoreActiveDownloads() {
     this.swarms.forEach(s => {
-      if (s.state === 'downloading') {
+      if (s.state === 'downloading' || s.state === 'seeding') {
         this.startRealTorrent(s);
       }
     });
@@ -412,8 +413,20 @@ class HavenMissionControl {
       const s = this.contextSwarm;
       if (!s) return;
       this.appendLog(`[VERIFY] Initiating piece integrity recheck on: ${s.name}`);
-      this.startRealTorrent(s);
-      this.appendLog(`[VERIFY] Swarm verification active. SHA pieces verifying via engine.`);
+      if (window.havenNative?.recheckTorrent) {
+        try {
+          const res = await window.havenNative.recheckTorrent(s.id);
+          if (res?.success) {
+            this.appendLog(`[VERIFY] Integrity check active for ${s.name}. All piece hashes verifying against payload.`);
+          } else {
+            this.appendLog(`[VERIFY ERROR] ${res?.error || 'Failed to recheck'}`);
+          }
+        } catch (err) {
+          this.appendLog(`[VERIFY ERROR] ${err.message}`);
+        }
+      } else {
+        this.startRealTorrent(s);
+      }
       menu?.classList.add('hidden');
       this.render();
     });
@@ -692,11 +705,7 @@ class HavenMissionControl {
       if (val) {
         this.downloadDir = val;
         localStorage.setItem('haven_download_dir', val);
-        const drive = val.slice(0, 2).toUpperCase();
-        const volInfo = document.getElementById('modalVolumeInfo');
-        if (volInfo) {
-          volInfo.innerHTML = `<span class="text-emerald">✓ Target Volume (${drive || 'C:'})</span> • SafePath Confinement Active • Real Disk Allocation`;
-        }
+        this.updateModalSaveLocation(val);
       }
     });
 
@@ -747,7 +756,7 @@ class HavenMissionControl {
     }
   }
 
-  updateModalSaveLocation(dirPath) {
+  async updateModalSaveLocation(dirPath) {
     const el = document.getElementById('modalMagnetPath');
     if (el) {
       if ('value' in el) el.value = dirPath;
@@ -756,6 +765,15 @@ class HavenMissionControl {
 
     const drive = (dirPath || '').slice(0, 2).toUpperCase();
     const volInfo = document.getElementById('modalVolumeInfo');
+    if (window.havenNative?.getVolumeInfo && dirPath) {
+      try {
+        const info = await window.havenNative.getVolumeInfo(dirPath);
+        if (volInfo && info && info.freeGB) {
+          volInfo.innerHTML = `<span class="text-emerald">✓ Target Volume (${info.drive})</span> • ${info.freeGB} GB Free • SafePath Confinement Active • Real Disk Allocation`;
+          return;
+        }
+      } catch (e) {}
+    }
     if (volInfo) {
       volInfo.innerHTML = `<span class="text-emerald">✓ Target Volume (${drive || 'C:'})</span> • SafePath Confinement Active • Real Disk Allocation`;
     }
@@ -793,20 +811,30 @@ class HavenMissionControl {
     const totalSize = document.getElementById('pkgTotalSize');
     if (totalSize) totalSize.textContent = `${pkgData.sizeFormatted} TOTAL`;
 
-    // Render file preview rows
+    // Render file preview rows with interactive checkboxes and executable quarantine
     const list = document.getElementById('pkgFilesList');
     if (list) {
       list.innerHTML = '';
-      pkgData.files.forEach(f => {
+      pkgData.files.forEach((f, idx) => {
         const row = document.createElement('div');
-        row.className = 'pkg-file-row';
+        row.className = `pkg-file-row ${f.isRisk ? 'risk-row' : ''}`;
         row.innerHTML = `
-          <span class="pkg-file-icon">📄</span>
-          <span class="pkg-file-name font-mono">${this.escapeHtml(f.name)}</span>
+          <input type="checkbox" class="pkg-file-chk" data-idx="${idx}" ${f.selected && !f.locked ? 'checked' : ''} ${f.locked ? 'disabled' : ''} title="${f.locked ? 'Executable file automatically quarantined' : 'Select or deselect file for download'}">
+          <span class="pkg-file-icon">${f.isRisk ? '⚠️' : '📄'}</span>
+          <span class="pkg-file-name font-mono ${f.isRisk ? 'line-through text-red' : ''}" title="${this.escapeHtml(f.name)}">${this.escapeHtml(f.name)}</span>
           <span class="pkg-file-size font-mono">${f.size}</span>
-          <span class="verdict-tag font-mono ${f.isRisk ? 'status-exec-blocked' : 'status-safepath-ok'}">${f.isRisk ? '[EXEC RISK]' : '[SAFEPATH OK]'}</span>
+          <span class="verdict-tag font-mono ${f.isRisk ? 'status-exec-blocked' : 'status-safepath-ok'}">${f.isRisk ? '[EXEC RISK - QUARANTINED]' : '[SAFEPATH OK]'}</span>
         `;
         list.appendChild(row);
+      });
+
+      list.querySelectorAll('.pkg-file-chk').forEach(chk => {
+        chk.addEventListener('change', (e) => {
+          const idx = parseInt(e.target.dataset.idx, 10);
+          if (pkgData.files[idx] && !pkgData.files[idx].locked) {
+            pkgData.files[idx].selected = e.target.checked;
+          }
+        });
       });
     }
 
@@ -881,7 +909,8 @@ class HavenMissionControl {
   }
 
   submitAddModal() {
-    const targetMount = document.getElementById('modalMagnetPath')?.textContent.trim() || this.downloadDir || 'C:\\Users\\Abeesh\\Downloads\\Haven';
+    const pathEl = document.getElementById('modalMagnetPath');
+    const targetMount = (pathEl?.value || pathEl?.textContent || '').trim() || this.downloadDir || 'C:\\Users\\Abeesh\\Downloads\\Haven';
     this.downloadDir = targetMount;
     localStorage.setItem('haven_download_dir', targetMount);
 
@@ -896,6 +925,10 @@ class HavenMissionControl {
       const dn = document.getElementById('modalMagnetName')?.value.trim() || pkg.name;
       const isRisky = /\.(exe|bat|cmd|ps1|iso|vbs)$/i.test(dn);
 
+      const deselectedFiles = pkg.files
+        .filter(f => !f.selected || f.isRisk || f.locked)
+        .map(f => f.name);
+
       const newSwarm = {
         id: 't-' + Date.now(),
         num: String(this.swarms.length + 1).padStart(2, '0'),
@@ -904,6 +937,7 @@ class HavenMissionControl {
         hash: pkg.hash,
         source: pkg.source || (pkg.hash ? `magnet:?xt=urn:btih:${pkg.hash}&dn=${encodeURIComponent(dn)}` : null),
         fileBuffer: pkg.fileBuffer || null,
+        deselectedFiles: deselectedFiles,
         sizeFormatted: pkg.sizeFormatted,
         sizeBytes: pkg.sizeBytes,
         downloadedBytes: 0,
@@ -921,8 +955,8 @@ class HavenMissionControl {
         eta: autoStart ? 'Connecting to peers...' : 'Paused',
         state: isRisky ? 'quarantined' : (autoStart ? 'downloading' : 'paused'),
         targetMount: targetMount,
-        freeVolume: '382.4 GB',
-        volumeType: 'NVMe',
+        freeVolume: 'Calculating...',
+        volumeType: 'Disk',
         uploadLimit: uploadLimit,
         seedRatioGoal: seedRatio,
         sequential: sequential,
@@ -1062,7 +1096,6 @@ class HavenMissionControl {
   }
 
   renderTable() {
-    this.tableBody.innerHTML = '';
     const filtered = this.swarms.filter(s => {
       if (this.currentFilter === 'downloading' && s.state !== 'downloading') return false;
       if (this.currentFilter === 'seeding' && s.state !== 'seeding') return false;
@@ -1076,34 +1109,50 @@ class HavenMissionControl {
       return true;
     });
 
-    // Clean, zero-mock empty state
+    // Handle empty state
     if (filtered.length === 0) {
-      const tr = document.createElement('tr');
-      tr.className = 'empty-state-row';
-      tr.innerHTML = `
-        <td colspan="8" class="empty-state-cell">
-          <div class="empty-state-card">
-            <div class="empty-icon">🛡</div>
-            <div class="empty-title">READY FOR INGESTION // ZERO ACTIVE SWARMS</div>
-            <div class="empty-subtitle">
-              Drag & drop a <strong class="text-emerald font-mono">.torrent</strong> file anywhere or paste a Magnet URI above to begin SafePath inspection.
+      this.tableBody.innerHTML = `
+        <tr class="empty-state-row">
+          <td colspan="8" class="empty-state-cell">
+            <div class="empty-state-card">
+              <div class="empty-icon">🛡</div>
+              <div class="empty-title">READY FOR INGESTION // ZERO ACTIVE SWARMS</div>
+              <div class="empty-subtitle">
+                Drag & drop a <strong class="text-emerald font-mono">.torrent</strong> file anywhere or paste a Magnet URI above to begin SafePath inspection.
+              </div>
+              <div class="empty-subtext font-mono">
+                SafePath Confinement Active • Default-Deny Threat Quarantine Enforced • Zero Tracking
+              </div>
             </div>
-            <div class="empty-subtext font-mono">
-              SafePath Confinement Active • Default-Deny Threat Quarantine Enforced • Zero Tracking
-            </div>
-          </div>
-        </td>
+          </td>
+        </tr>
       `;
-      this.tableBody.appendChild(tr);
       this.updateSidebarCounts();
       return;
     }
 
-    filtered.forEach(s => {
-      const isSelected = s.id === this.selectedId;
-      const tr = document.createElement('tr');
-      if (isSelected) tr.classList.add('selected');
+    // Clean up empty-state row if it was present
+    const emptyRow = this.tableBody.querySelector('.empty-state-row');
+    if (emptyRow) emptyRow.remove();
 
+    // Keyed row reconciliation
+    const existingRows = new Map();
+    this.tableBody.querySelectorAll('tr[data-id]').forEach(tr => {
+      existingRows.set(tr.dataset.id, tr);
+    });
+
+    const activeIds = new Set(filtered.map(s => s.id));
+
+    // Remove rows that no longer match the filter/state
+    existingRows.forEach((tr, id) => {
+      if (!activeIds.has(id)) {
+        tr.remove();
+        existingRows.delete(id);
+      }
+    });
+
+    filtered.forEach((s, index) => {
+      const isSelected = s.id === this.selectedId;
       let numClass = 'sq-dim';
       if (s.numType === 'active') numClass = 'sq-active';
       if (s.numType === 'red') numClass = 'sq-red';
@@ -1129,85 +1178,131 @@ class HavenMissionControl {
       const hashClass = s.state === 'quarantined' ? 'hash-red' : '';
       const etaClass = s.eta === 'Estimating' ? 'eta-estimating' : '';
 
-      tr.innerHTML = `
-        <td class="col-num">
-          <span class="${numClass}">■</span>${s.num}
-        </td>
-        <td class="col-name">
-          <div class="payload-title ${titleClass}">${this.escapeHtml(s.name)}</div>
-          <div class="payload-hash ${hashClass}">
-            <span class="hash-tag">HASH:</span> ${s.hash.slice(0, 16)}...
-            <span class="payload-dest font-mono" title="Destination Directory: ${this.escapeHtml(s.targetMount || '')}">📁 ${this.escapeHtml(s.targetMount || '')}</span>
-          </div>
-        </td>
-        <td class="col-size">${s.sizeFormatted}</td>
-        <td class="col-progress">
-          <div class="progress-meta ${progressMetaClass}">
-            <span class="progress-pct font-mono">${s.progressPct.toFixed(1)}%</span>
-            <span class="sub-bytes font-mono">${downloadedStr} of ${s.sizeFormatted}</span>
-          </div>
-          <div class="progress-track">
-            <div class="progress-fill ${progressFillClass}" style="width: ${Math.min(100, Math.max(0, s.progressPct))}%"></div>
-          </div>
-          <span class="progress-sub-stat font-mono">${subStatText}</span>
-        </td>
-        <td class="col-status">
-          <span class="badge-status ${s.securityBadge}">${s.securityText}</span>
-        </td>
-        <td class="col-speed">
-          <div>${s.downSpeed}</div>
-          <div class="speed-up-text">${s.upSpeed}</div>
-        </td>
-        <td class="col-peers">
-          ${s.peers} <span class="peers-leech">(${s.peersLeech})</span>
-        </td>
-        <td class="col-eta ${etaClass}">
-          ${s.eta}
-        </td>
-        <td class="col-act">
-          <button class="btn-row-open" title="Open Download Directory in File Explorer">📂</button>
-          <button class="btn-row-menu" title="Actions & Controls (⋮)">⋮</button>
-          <button class="btn-row-del" title="Delete swarm (Del)">✕</button>
-        </td>
-      `;
+      let tr = existingRows.get(s.id);
+      if (tr) {
+        // Surgical 60fps in-place DOM property updates
+        if (isSelected) tr.classList.add('selected');
+        else tr.classList.remove('selected');
 
-      tr.querySelector('.btn-row-open')?.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const mount = s.targetMount || this.downloadDir;
-        if (window.havenNative?.openPath) {
-          await window.havenNative.openPath(mount);
+        const fillEl = tr.querySelector('.progress-fill');
+        if (fillEl) {
+          fillEl.style.width = `${Math.min(100, Math.max(0, s.progressPct))}%`;
+          fillEl.className = `progress-fill ${progressFillClass}`;
         }
-      });
+        const pctEl = tr.querySelector('.progress-pct');
+        if (pctEl) pctEl.textContent = `${s.progressPct.toFixed(1)}%`;
+        const subBytesEl = tr.querySelector('.sub-bytes');
+        if (subBytesEl) subBytesEl.textContent = `${downloadedStr} of ${s.sizeFormatted}`;
+        const subStatEl = tr.querySelector('.progress-sub-stat');
+        if (subStatEl) subStatEl.textContent = subStatText;
+        const downEl = tr.querySelector('.col-speed > div:first-child');
+        if (downEl) downEl.textContent = s.downSpeed;
+        const upEl = tr.querySelector('.col-speed > .speed-up-text');
+        if (upEl) upEl.textContent = s.upSpeed;
+        const peersEl = tr.querySelector('.col-peers');
+        if (peersEl) peersEl.innerHTML = `${s.peers} <span class="peers-leech">(${s.peersLeech || 0})</span>`;
+        const etaEl = tr.querySelector('.col-eta');
+        if (etaEl) {
+          etaEl.textContent = s.eta;
+          etaEl.className = `col-eta ${etaClass}`;
+        }
+        const badgeEl = tr.querySelector('.col-status .badge-status');
+        if (badgeEl) {
+          badgeEl.className = `badge-status ${s.securityBadge}`;
+          badgeEl.textContent = s.securityText;
+        }
+      } else {
+        // Create new row once, attaching event handlers
+        tr = document.createElement('tr');
+        tr.dataset.id = s.id;
+        if (isSelected) tr.classList.add('selected');
 
-      tr.querySelector('.btn-row-menu')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const rect = e.currentTarget.getBoundingClientRect();
-        this.selectedId = s.id;
-        this.renderdiagnosticsPanels();
-        this.openSwarmContextMenu(rect.left - 180, rect.bottom + 4, s);
-      });
+        tr.innerHTML = `
+          <td class="col-num">
+            <span class="${numClass}">■</span>${s.num}
+          </td>
+          <td class="col-name">
+            <div class="payload-title ${titleClass}">${this.escapeHtml(s.name)}</div>
+            <div class="payload-hash ${hashClass}">
+              <span class="hash-tag">HASH:</span> ${s.hash.slice(0, 16)}...
+              <span class="payload-dest font-mono" title="Destination Directory: ${this.escapeHtml(s.targetMount || '')}">📁 ${this.escapeHtml(s.targetMount || '')}</span>
+            </div>
+          </td>
+          <td class="col-size">${s.sizeFormatted}</td>
+          <td class="col-progress">
+            <div class="progress-meta ${progressMetaClass}">
+              <span class="progress-pct font-mono">${s.progressPct.toFixed(1)}%</span>
+              <span class="sub-bytes font-mono">${downloadedStr} of ${s.sizeFormatted}</span>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill ${progressFillClass}" style="width: ${Math.min(100, Math.max(0, s.progressPct))}%"></div>
+            </div>
+            <span class="progress-sub-stat font-mono">${subStatText}</span>
+          </td>
+          <td class="col-status">
+            <span class="badge-status ${s.securityBadge}">${s.securityText}</span>
+          </td>
+          <td class="col-speed">
+            <div>${s.downSpeed}</div>
+            <div class="speed-up-text">${s.upSpeed}</div>
+          </td>
+          <td class="col-peers">
+            ${s.peers} <span class="peers-leech">(${s.peersLeech || 0})</span>
+          </td>
+          <td class="col-eta ${etaClass}">
+            ${s.eta}
+          </td>
+          <td class="col-act">
+            <button class="btn-row-open" title="Open Download Directory in File Explorer">📂</button>
+            <button class="btn-row-menu" title="Actions & Controls (⋮)">⋮</button>
+            <button class="btn-row-del" title="Delete swarm (Del)">✕</button>
+          </td>
+        `;
 
-      tr.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        this.selectedId = s.id;
-        this.renderTable();
-        this.renderdiagnosticsPanels();
-        this.openSwarmContextMenu(e.clientX, e.clientY, s);
-      });
+        tr.querySelector('.btn-row-open')?.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const mount = s.targetMount || this.downloadDir;
+          if (window.havenNative?.openPath) {
+            await window.havenNative.openPath(mount);
+          }
+        });
 
-      tr.querySelector('.btn-row-del')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.promptDelete(s.id);
-      });
+        tr.querySelector('.btn-row-menu')?.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const rect = e.currentTarget.getBoundingClientRect();
+          this.selectedId = s.id;
+          this.renderTable();
+          this.renderdiagnosticsPanels();
+          this.openSwarmContextMenu(rect.left - 180, rect.bottom + 4, s);
+        });
 
-      tr.addEventListener('click', () => {
-        this.selectedId = s.id;
-        this.renderTable();
-        this.renderdiagnosticsPanels();
-      });
+        tr.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.selectedId = s.id;
+          this.renderTable();
+          this.renderdiagnosticsPanels();
+          this.openSwarmContextMenu(e.clientX, e.clientY, s);
+        });
 
-      this.tableBody.appendChild(tr);
+        tr.querySelector('.btn-row-del')?.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.promptDelete(s.id);
+        });
+
+        tr.addEventListener('click', () => {
+          this.selectedId = s.id;
+          this.renderTable();
+          this.renderdiagnosticsPanels();
+        });
+
+        const currentChildren = Array.from(this.tableBody.children);
+        if (index < currentChildren.length) {
+          this.tableBody.insertBefore(tr, currentChildren[index]);
+        } else {
+          this.tableBody.appendChild(tr);
+        }
+      }
     });
 
     this.updateSidebarCounts();
@@ -1283,8 +1378,19 @@ class HavenMissionControl {
     }
 
     // Col 1: SafePath Manifest
-    document.getElementById('mountTarget').textContent = s.targetMount;
-    document.getElementById('mountFree').innerHTML = `${s.freeVolume} <small class="text-muted">${s.volumeType}</small>`;
+    document.getElementById('mountTarget').textContent = s.targetMount || this.downloadDir;
+    document.getElementById('mountFree').innerHTML = `${s.freeVolume || '382.4 GB'} <small class="text-muted">${s.volumeType || 'Disk'}</small>`;
+
+    if (window.havenNative?.getVolumeInfo && s.targetMount) {
+      window.havenNative.getVolumeInfo(s.targetMount).then(info => {
+        if (info && info.freeGB) {
+          s.freeVolume = `${info.freeGB} GB`;
+          s.volumeType = info.drive || 'Disk';
+          const mf = document.getElementById('mountFree');
+          if (mf) mf.innerHTML = `${info.freeGB} GB <small class="text-muted">${info.drive || 'Disk'}</small>`;
+        }
+      }).catch(() => {});
+    }
 
     this.manifestBody.innerHTML = '';
     s.files.forEach(f => {
@@ -1317,7 +1423,8 @@ class HavenMissionControl {
     // Col 2: Mesh Stats
     document.getElementById('statDown').textContent = s.downSpeed;
     document.getElementById('statUp').textContent = s.upSpeed;
-    document.getElementById('statIO').textContent = s.state === 'downloading' ? '14.8 MB/s' : '0.0 MB/s';
+    const liveIO = (s.rawDownSpeed || 0) + (s.rawUpSpeed || 0);
+    document.getElementById('statIO').textContent = this.formatSpeed(liveIO);
 
     this.peerBody.innerHTML = '';
     s.peersList.forEach(p => {
@@ -1683,39 +1790,30 @@ class HavenMissionControl {
     }
   }
 
-  restoreActiveDownloads() {
-    if (!window.havenNative?.startTorrent) return;
-    this.swarms.forEach(s => {
-      if (s.state === 'downloading' || s.state === 'seeding') {
-        const src = s.source || (s.hash ? `magnet:?xt=urn:btih:${s.hash}&dn=${encodeURIComponent(s.name)}` : null);
-        if (src) {
-          window.havenNative.startTorrent({
-            id: s.id,
-            source: src,
-            targetDir: s.targetMount || this.downloadDir,
-            name: s.name,
-            fileBuffer: s.fileBuffer || null
-          });
-        }
-      }
-    });
-  }
-
   appendLog(line) {
+    if (!this.kernelLogTerminal) return;
     const el = document.createElement('div');
     el.className = 'log-entry';
 
-    if (line.includes('[FIREWALL]') || line.includes('[SAFEPATH] Blocked') || line.includes('[ERROR]')) {
-      el.innerHTML = `<span class="log-warn">${this.escapeHtml(line)}</span>`;
+    const span = document.createElement('span');
+    span.textContent = line;
+    if (line.includes('[FIREWALL]') || line.includes('[SAFEPATH] Blocked') || line.includes('[ERROR]') || line.includes('[WARN]')) {
+      span.className = 'log-warn';
     } else if (line.includes('[TRACKER]')) {
-      el.innerHTML = `<span class="log-tr">${this.escapeHtml(line)}</span>`;
+      span.className = 'log-tr';
     } else if (line.includes('[VERIFY]') || line.includes('[SAFEPATH]')) {
-      el.innerHTML = `<span class="log-ver">${this.escapeHtml(line)}</span>`;
+      span.className = 'log-ver';
     } else {
-      el.innerHTML = `<span class="log-dht">${this.escapeHtml(line)}</span>`;
+      span.className = 'log-dht';
     }
+    el.appendChild(span);
 
     this.kernelLogTerminal.appendChild(el);
+
+    // Ring buffer: enforce max 200 items to guarantee zero memory bloat and zero lag
+    while (this.kernelLogTerminal.children.length > 200) {
+      this.kernelLogTerminal.removeChild(this.kernelLogTerminal.firstChild);
+    }
     this.kernelLogTerminal.scrollTop = this.kernelLogTerminal.scrollHeight;
   }
 

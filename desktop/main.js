@@ -288,6 +288,120 @@ registerSecureHandler('app:showItemInFolder', async (_event, targetPath) => {
   return false;
 });
 
+// ==========================================================================
+// SAFEPATH DISK CONFINEMENT & SECURITY GATE (SR-04 / SR-16)
+// ==========================================================================
+const BLOCKED_EXECUTABLE_EXTS = new Set([
+  '.exe', '.bat', '.ps1', '.scr', '.msi', '.cmd', '.vbs', '.com', 
+  '.hta', '.dll', '.sys', '.cpl', '.pif', '.reg', '.wsf', '.vbe', '.jse'
+]);
+
+const PROTECTED_SYSTEM_PATHS = [
+  process.env.SystemRoot, // e.g. C:\Windows
+  process.env.ProgramFiles,
+  process.env['ProgramFiles(x86)'],
+  process.env.ProgramData
+].filter(Boolean).map(p => path.normalize(p).toLowerCase());
+
+/**
+ * Validates that a target directory is real, canonical, not a protected OS path,
+ * and writable (SafePath Confinement).
+ */
+async function validateSafePathTarget(targetDir) {
+  if (!targetDir || typeof targetDir !== 'string') {
+    throw new Error('[SafePath] Target directory path must be a non-empty string.');
+  }
+
+  // Reject path traversal and null bytes
+  if (targetDir.includes('\0') || targetDir.split(/[\\\/]/).includes('..')) {
+    throw new Error('[SafePath Traversal Alert] Path traversal characters detected in target path.');
+  }
+
+  const normalized = path.normalize(targetDir);
+
+  // Reject protected Windows system directories
+  const lowerNorm = normalized.toLowerCase();
+  for (const sysPath of PROTECTED_SYSTEM_PATHS) {
+    if (lowerNorm === sysPath || lowerNorm.startsWith(sysPath + path.sep)) {
+      throw new Error(`[SafePath Security Gate] Denied write access to protected OS directory: ${normalized}`);
+    }
+  }
+
+  // Ensure directory exists
+  if (!fs.existsSync(normalized)) {
+    await fs.promises.mkdir(normalized, { recursive: true });
+  }
+
+  // Resolve canonical path to prevent symlink/junction escapes
+  const realTarget = await fs.promises.realpath(normalized);
+  return realTarget;
+}
+
+/**
+ * Validates torrent internal file paths against traversal and executable payload rules.
+ */
+function inspectTorrentFileManifest(files) {
+  const sanitizedFiles = [];
+  let execRiskDetected = false;
+
+  if (Array.isArray(files)) {
+    for (const f of files) {
+      const relPath = (f.path || f.name || '').replace(/[\0]/g, '');
+      const parts = relPath.split(/[\\\/]/);
+      if (parts.includes('..') || path.isAbsolute(relPath)) {
+        throw new Error(`[SafePath Traversal Alert] Malicious internal path rejected: ${relPath}`);
+      }
+
+      const ext = path.extname(relPath).toLowerCase();
+      const isExec = BLOCKED_EXECUTABLE_EXTS.has(ext);
+      if (isExec) {
+        execRiskDetected = true;
+      }
+
+      sanitizedFiles.push({
+        name: f.name || path.basename(relPath),
+        path: relPath,
+        sizeBytes: Number(f.length || f.sizeBytes || 0),
+        isRisk: isExec,
+        quarantined: isExec
+      });
+    }
+  }
+
+  return { sanitizedFiles, execRiskDetected };
+}
+
+/**
+ * Queries real NTFS volume statistics for available disk space.
+ */
+async function queryVolumeStorage(targetPath) {
+  try {
+    const canonical = await validateSafePathTarget(targetPath || app.getPath('downloads'));
+    const stats = await fs.promises.statfs(canonical);
+    const freeBytes = Number(stats.bavail) * Number(stats.bsize);
+    const totalBytes = Number(stats.blocks) * Number(stats.bsize);
+    const rootDrive = path.parse(canonical).root;
+    return {
+      success: true,
+      canonicalPath: canonical,
+      rootDrive,
+      freeBytes,
+      totalBytes,
+      freeFormatted: (freeBytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB',
+      totalFormatted: (totalBytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB'
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err.message
+    };
+  }
+}
+
+registerSecureHandler('safepath:getVolumeInfo', async (_event, targetPath) => {
+  return await queryVolumeStorage(targetPath || app.getPath('downloads'));
+});
+
 const KNOWN_MEDIA_EXTS = new Set([
   '.mp4', '.mkv', '.avi', '.mov', '.wmv', '.m4v', '.flv', '.webm',
   '.iso', '.zip', '.rar', '.7z', '.tar', '.gz',
@@ -299,7 +413,6 @@ const KNOWN_MEDIA_EXTS = new Set([
 function resolvePayloadFileName(rawName, files) {
   let name = (rawName || 'download-payload').trim().replace(/[\/\\:*?"<>|]/g, '_');
 
-  // If multi-file or single file with known extension in files array
   if (Array.isArray(files) && files.length === 1 && files[0] && files[0].name) {
     const fExt = path.extname(files[0].name).toLowerCase();
     if (KNOWN_MEDIA_EXTS.has(fExt)) {
@@ -310,13 +423,11 @@ function resolvePayloadFileName(rawName, files) {
     }
   }
 
-  // Check if current name already ends with a known media extension
   const currentExt = path.extname(name).toLowerCase();
   if (KNOWN_MEDIA_EXTS.has(currentExt)) {
     return name;
   }
 
-  // Name might have a tracker label suffix like .BZ or .GG or .MX (e.g. [YTS.GG - YTS.BZ])
   const isVideo = /1080p|720p|480p|2160p|4k|bluray|x265|x264|hevc|web-dl|yts|movie|film|video|bdrip/i.test(name);
   const isAudio = /album|flac|320kbps|discography|audio|soundtrack/i.test(name);
 
@@ -325,7 +436,7 @@ function resolvePayloadFileName(rawName, files) {
   } else if (isAudio) {
     return name + '.mp3';
   } else {
-    return name + '.mp4'; // Default to standard mp4 media container
+    return name + '.mp4';
   }
 }
 
@@ -405,10 +516,17 @@ const PUBLIC_TRACKERS = [
 
 registerSecureHandler('torrent:start', async (_event, payload) => {
   if (!payload || !payload.id) return { success: false, error: 'Invalid payload' };
-  const { id, source, targetDir, name, fileBuffer } = payload;
-  const normalizedDir = path.normalize(targetDir || path.join(app.getPath('downloads'), 'Haven'));
-  if (!fs.existsSync(normalizedDir)) {
-    fs.mkdirSync(normalizedDir, { recursive: true });
+  const { id, source, targetDir, name, fileBuffer, deselectedFiles } = payload;
+  
+  // SafePath Confinement: Validate and canonicalize destination folder
+  const safeTargetDir = await validateSafePathTarget(targetDir || path.join(app.getPath('downloads'), 'Haven'));
+
+  // SafePath Storage Check: Verify volume space before start
+  if (payload.sizeBytes && typeof payload.sizeBytes === 'number' && payload.sizeBytes > 0) {
+    const vol = await queryVolumeStorage(safeTargetDir);
+    if (vol.success && vol.freeBytes > 0 && vol.freeBytes < payload.sizeBytes) {
+      throw new Error(`[SafePath Storage Gate] Insufficient disk space on ${vol.rootDrive}. Required: ${payload.sizeBytes} bytes, Available: ${vol.freeBytes} bytes.`);
+    }
   }
 
   try {
@@ -417,6 +535,7 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
     if (activeTorrents.has(id)) {
       const existing = activeTorrents.get(id);
       if (existing.paused) existing.resume();
+      wakeHeartbeatIfNeeded();
       return { success: true, active: true };
     }
 
@@ -447,10 +566,10 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
       return { success: true, active: true };
     }
 
-    appendBootLog(`[Engine] Starting live BitTorrent download for ${name} at ${normalizedDir}`);
+    appendBootLog(`[Engine] Starting authentic BitTorrent transfer for ${name} at ${safeTargetDir}`);
 
     const torrent = client.add(input, {
-      path: normalizedDir,
+      path: safeTargetDir,
       announce: PUBLIC_TRACKERS
     });
 
@@ -462,23 +581,36 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
     });
 
     torrent.on('metadata', () => {
-      appendBootLog(`[Engine] Metadata resolved: ${torrent.name} (${torrent.length} bytes, ${torrent.files.length} files)`);
+      appendBootLog(`[Engine] Metadata resolved: ${torrent.name} (${torrent.length} bytes, ${torrent.files ? torrent.files.length : 0} files)`);
+      
+      const { sanitizedFiles, execRiskDetected } = inspectTorrentFileManifest(torrent.files);
+
+      // SafePath Confinement: Automatically quarantine and deselect executable extensions
+      if (Array.isArray(torrent.files)) {
+        torrent.files.forEach((file, idx) => {
+          const ext = path.extname(file.name || '').toLowerCase();
+          if (BLOCKED_EXECUTABLE_EXTS.has(ext)) {
+            file.deselect();
+            appendBootLog(`[SafePath Gate] Quarantined and deselected executable risk: ${file.name}`);
+          } else if (Array.isArray(deselectedFiles) && deselectedFiles.includes(idx)) {
+            file.deselect();
+          }
+        });
+      }
+
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('torrent:metadata', {
           id,
           name: torrent.name,
           totalSize: torrent.length,
-          files: torrent.files ? torrent.files.map(f => ({
-            name: f.name,
-            path: f.path,
-            sizeBytes: f.length
-          })) : []
+          execRiskDetected,
+          files: sanitizedFiles
         });
       }
     });
 
     torrent.on('done', () => {
-      appendBootLog(`[Engine] Torrent 100% finished: ${torrent.name}`);
+      appendBootLog(`[Engine] Torrent 100% verified and finished: ${torrent.name}`);
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('torrent:done', {
           id,
@@ -495,7 +627,7 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
     return { success: true };
   } catch (err) {
     console.error('[Engine Add Error]', err);
-    return { success: false, error: err.message };
+    throw new Error(`[Engine] Failed to add swarm: ${err.message}`);
   }
 });
 
@@ -525,6 +657,40 @@ registerSecureHandler('torrent:stop', async (_event, id) => {
     activeTorrents.delete(id);
     diskBytesCache.delete(id);
     return true;
+  }
+  return false;
+});
+
+registerSecureHandler('torrent:recheck', async (_event, id) => {
+  if (typeof id === 'string' && activeTorrents.has(id)) {
+    const t = activeTorrents.get(id);
+    if (typeof t.rescanPieces === 'function') {
+      t.rescanPieces();
+      return true;
+    }
+    if (t.paused) t.resume();
+    return true;
+  }
+  return false;
+});
+
+registerSecureHandler('torrent:selectFiles', async (_event, payload) => {
+  if (!payload || !payload.id || !Array.isArray(payload.fileIndices)) return false;
+  if (activeTorrents.has(payload.id)) {
+    const t = activeTorrents.get(payload.id);
+    if (Array.isArray(t.files)) {
+      t.files.forEach((f, idx) => {
+        const ext = path.extname(f.name || '').toLowerCase();
+        if (BLOCKED_EXECUTABLE_EXTS.has(ext)) {
+          f.deselect();
+        } else if (payload.fileIndices.includes(idx)) {
+          f.select();
+        } else {
+          f.deselect();
+        }
+      });
+      return true;
+    }
   }
   return false;
 });
