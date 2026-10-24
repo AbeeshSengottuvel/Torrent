@@ -188,7 +188,13 @@ class HavenMissionControl {
 
     this.hiddenPicker?.addEventListener('change', (e) => {
       if (e.target.files && e.target.files[0]) {
-        this.ingestFile(e.target.files[0]);
+        const file = e.target.files[0];
+        e.target.value = '';
+        if (file.path) {
+          this.ingestTorrentFilePath(file.path);
+        } else {
+          this.ingestFile(file);
+        }
       }
     });
 
@@ -640,7 +646,11 @@ class HavenMissionControl {
         for (let i = 0; i < files.length; i++) {
           const file = files[i];
           if (file.name.toLowerCase().endsWith('.torrent')) {
-            await this.ingestFile(file);
+            if (file.path) {
+              await this.ingestTorrentFilePath(file.path);
+            } else {
+              await this.ingestFile(file);
+            }
           } else {
             this.appendLog(`[SAFEPATH] Rejected file ${file.name}. Only .torrent files accepted.`);
           }
@@ -672,8 +682,18 @@ class HavenMissionControl {
     });
 
     // Browse .torrent file from within modal
-    document.getElementById('btnBrowseTorrentFile')?.addEventListener('click', () => {
-      this.hiddenPicker?.click();
+    document.getElementById('btnBrowseTorrentFile')?.addEventListener('click', async () => {
+      if (window.havenNative?.selectTorrentFile) {
+        const filePath = await window.havenNative.selectTorrentFile();
+        if (filePath) {
+          await this.ingestTorrentFilePath(filePath);
+          return;
+        }
+      }
+      if (this.hiddenPicker) {
+        this.hiddenPicker.value = '';
+        this.hiddenPicker.click();
+      }
     });
 
     // Modal Close and Cancel
@@ -781,12 +801,24 @@ class HavenMissionControl {
 
   openAddMagnetModal(initialUri = '') {
     if (!this.addMagnetModal) return;
+    this.pendingPackage = null;
     this.setModalMode('magnet');
     this.updateModalSaveLocation(this.downloadDir);
 
     if (this.modalMagnetUri) {
       this.modalMagnetUri.value = initialUri || this.uriInput?.value.trim() || '';
     }
+    const nameInput = document.getElementById('modalMagnetName');
+    if (nameInput) nameInput.value = '';
+
+    const list = document.getElementById('pkgFilesList');
+    if (list) list.innerHTML = '';
+
+    const pName = document.getElementById('pickerFileName');
+    if (pName) pName.textContent = 'None';
+    const pSize = document.getElementById('pickerFileSize');
+    if (pSize) pSize.textContent = '--';
+
     this.validateModalMagnetUri();
     this.addMagnetModal.classList.remove('hidden');
     setTimeout(() => this.modalMagnetUri?.focus(), 50);
@@ -798,11 +830,15 @@ class HavenMissionControl {
     this.setModalMode('torrent');
     this.updateModalSaveLocation(this.downloadDir);
 
+    if (this.modalMagnetUri) {
+      this.modalMagnetUri.value = '';
+    }
+
     const nameInput = document.getElementById('modalMagnetName');
     if (nameInput) nameInput.value = pkgData.name;
 
     const pName = document.getElementById('pickerFileName');
-    if (pName) pName.textContent = pkgData.fileName;
+    if (pName) pName.textContent = pkgData.name;
     const pSize = document.getElementById('pickerFileSize');
     if (pSize) pSize.textContent = pkgData.sizeFormatted;
 
@@ -922,6 +958,18 @@ class HavenMissionControl {
     if (this.modalMode === 'torrent' && this.pendingPackage) {
       // Ingest .torrent package with user-confirmed destination
       const pkg = this.pendingPackage;
+      const targetHash = (pkg.hash || '').toLowerCase();
+
+      // Guard against multi-torrent state collision: check if torrent with this infoHash is already in session
+      const existing = this.swarms.find(s => s.hash && s.hash.toLowerCase() === targetHash);
+      if (existing) {
+        this.selectedId = existing.id;
+        this.closeAddMagnetModal();
+        this.render();
+        this.appendLog(`[SWARM] Torrent "${existing.name}" is already loaded in session (${targetHash.slice(0, 16)}...). Switched focus.`);
+        return;
+      }
+
       const dn = document.getElementById('modalMagnetName')?.value.trim() || pkg.name;
       const isRisky = /\.(exe|bat|cmd|ps1|iso|vbs)$/i.test(dn);
 
@@ -934,8 +982,8 @@ class HavenMissionControl {
         num: String(this.swarms.length + 1).padStart(2, '0'),
         numType: isRisky ? 'red' : 'active',
         name: dn,
-        hash: pkg.hash,
-        source: pkg.source || (pkg.hash ? `magnet:?xt=urn:btih:${pkg.hash}&dn=${encodeURIComponent(dn)}` : null),
+        hash: targetHash,
+        source: pkg.source || (targetHash ? `magnet:?xt=urn:btih:${targetHash}&dn=${encodeURIComponent(dn)}` : null),
         fileBuffer: pkg.fileBuffer || null,
         deselectedFiles: deselectedFiles,
         sizeFormatted: pkg.sizeFormatted,
@@ -967,9 +1015,9 @@ class HavenMissionControl {
           desc: 'Potentially dangerous payload isolated. SafePath gate enforced.'
         } : null,
         peersList: [],
-        bitfield: { total: 360, verified: 0, inFlight: 0 },
+        bitfield: { total: pkg.pieces || 360, verified: 0, inFlight: 0 },
         tracker: {
-          active: 'tracker.opentrackr.org:1337',
+          active: (pkg.announce && pkg.announce[0]) ? pkg.announce[0].replace(/^(udp|wss|https?):\/\//, '') : 'tracker.opentrackr.org:1337',
           reannounce: '00:15:00',
           scrape: '0 / 0'
         }
@@ -985,7 +1033,7 @@ class HavenMissionControl {
         this.startRealTorrent(newSwarm);
       }
 
-      this.appendLog(`[SAFEPATH] Ingested package ${dn} -> Mount: ${targetMount}. Beginning transfer.`);
+      this.appendLog(`[SAFEPATH] Ingested package ${dn} -> Mount: ${targetMount} (Hash: ${targetHash.slice(0, 16)}...).`);
       return;
     }
 
@@ -998,6 +1046,18 @@ class HavenMissionControl {
     }
 
     const rawMagnet = this.modalMagnetUri?.value.trim() || '';
+    const targetHash = (parsed.hash || '').toLowerCase();
+
+    // Guard against duplicate magnet in session
+    const existing = this.swarms.find(s => s.hash && s.hash.toLowerCase() === targetHash);
+    if (existing) {
+      this.selectedId = existing.id;
+      this.closeAddMagnetModal();
+      this.render();
+      this.appendLog(`[SWARM] Magnet "${existing.name}" is already loaded in session (${targetHash.slice(0, 16)}...). Switched focus.`);
+      return;
+    }
+
     const dn = this.modalMagnetName?.value.trim() || parsed.dn || 'magnet-payload';
     const isRisky = /\.(exe|bat|cmd|ps1|iso|vbs)$/i.test(dn);
 
@@ -1006,14 +1066,14 @@ class HavenMissionControl {
       num: String(this.swarms.length + 1).padStart(2, '0'),
       numType: isRisky ? 'red' : 'active',
       name: dn,
-      hash: parsed.hash,
+      hash: targetHash,
       source: rawMagnet,
       fileBuffer: null,
-      sizeFormatted: '1.45 GB',
-      sizeBytes: 1556925644,
+      sizeFormatted: 'Resolving...',
+      sizeBytes: 0,
       downloadedBytes: 0,
       progressPct: 0.0,
-      progressSub: '0.0 MB of 1.45 GB',
+      progressSub: 'Resolving metadata...',
       progressState: isRisky ? 'halted' : (autoStart ? 'active' : 'paused'),
       securityBadge: isRisky ? 'status-exec-blocked' : 'status-safepath-ok',
       securityText: isRisky ? '[EXEC RISK]' : '[SAFEPATH OK]',
@@ -1026,13 +1086,13 @@ class HavenMissionControl {
       eta: autoStart ? 'Connecting to peers...' : 'Paused',
       state: isRisky ? 'quarantined' : (autoStart ? 'downloading' : 'paused'),
       targetMount: targetMount,
-      freeVolume: '382.4 GB',
-      volumeType: 'NVMe',
+      freeVolume: 'Calculating...',
+      volumeType: 'Disk',
       uploadLimit: uploadLimit,
       seedRatioGoal: seedRatio,
       sequential: sequential,
       files: [
-        { name: dn, path: '/payload/', size: '1.45 GB', verdict: isRisky ? 'badge-risk' : 'verdict-ok', verdictText: isRisky ? '[EXEC RISK]' : '[SAFEPATH OK]', selected: !isRisky, isRisk: isRisky, locked: isRisky }
+        { name: dn, path: '/payload/', size: 'Resolving...', verdict: isRisky ? 'badge-risk' : 'verdict-ok', verdictText: isRisky ? '[EXEC RISK]' : '[SAFEPATH OK]', selected: !isRisky, isRisk: isRisky, locked: isRisky }
       ],
       quarantine: isRisky ? {
         active: true,
@@ -1059,29 +1119,22 @@ class HavenMissionControl {
       this.startRealTorrent(newSwarm);
     }
 
-    this.appendLog(`[SAFEPATH] Ingested Magnet swarm: ${dn} -> Mount: ${targetMount} (UpLimit: ${uploadLimit ? uploadLimit + 'kB/s' : '∞'})`);
+    this.appendLog(`[SAFEPATH] Ingested Magnet swarm: ${dn} -> Mount: ${targetMount} (Hash: ${targetHash.slice(0, 16)}...)`);
   }
 
   async ingestTorrentFilePath(filePath) {
-    if (!window.havenNative?.readTorrentFile) return;
+    if (!window.havenNative?.parseTorrentFile) return;
     try {
-      const data = await window.havenNative.readTorrentFile(filePath);
-      if (data) {
+      const meta = await window.havenNative.parseTorrentFile(filePath);
+      if (meta) {
         const fileObj = {
-          name: data.name,
-          size: data.size,
-          parsedMeta: data,
-          arrayBuffer: async () => {
-            const binary = atob(data.buffer);
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-            return bytes.buffer;
-          }
+          name: meta.name,
+          size: meta.totalBytes
         };
-        await this.ingestFile(fileObj, data);
+        await this.ingestFile(fileObj, meta);
       }
     } catch (e) {
-      this.appendLog(`[ERROR] Failed to ingest .torrent file from path: ${e.message}`);
+      this.appendLog(`[ERROR] Failed to ingest .torrent from path: ${e.message}`);
     }
   }
 
@@ -1624,17 +1677,21 @@ class HavenMissionControl {
 
     this.tickerSec = 0;
 
-    // Real Diagnostics Ticker (calculates actual aggregate bandwidth from live swarms)
+    // Real Diagnostics Ticker (calculates actual aggregate bandwidth & totals from live swarms)
     setInterval(() => {
       this.tickerSec++;
       let totalDownBytesSec = 0;
       let totalUpBytesSec = 0;
       let totalActivePeers = 0;
+      let totalDownloadedBytes = 0;
+      let totalUploadedBytes = 0;
 
       this.swarms.forEach(s => {
         totalDownBytesSec += (s.rawDownSpeed || 0);
         totalUpBytesSec += (s.rawUpSpeed || 0);
         totalActivePeers += parseInt(s.peers || '0', 10);
+        totalDownloadedBytes += (s.downloadedBytes || 0);
+        totalUploadedBytes += (s.uploadedBytes || 0);
       });
 
       // Update Waveform with REAL throughput
@@ -1662,6 +1719,29 @@ class HavenMissionControl {
       const peerCountEl = document.getElementById('valActivePeers');
       if (peerCountEl) peerCountEl.textContent = String(totalActivePeers);
 
+      // Update Bottom Footer Status Bar with authentic live metrics
+      const footDiskEl = document.getElementById('footDiskIO');
+      if (footDiskEl) {
+        const liveIOBytes = totalDownBytesSec + totalUpBytesSec;
+        footDiskEl.textContent = `${this.formatSpeed(liveIOBytes)} (${liveIOBytes > 0 ? 'ACTIVE' : 'IDLE'})`;
+      }
+
+      const footRatioEl = document.getElementById('footRatio');
+      if (footRatioEl) {
+        const ratio = totalDownloadedBytes > 0 ? (totalUploadedBytes / totalDownloadedBytes).toFixed(2) : '0.00';
+        footRatioEl.textContent = ratio;
+      }
+
+      const footDownEl = document.getElementById('footTotalDown');
+      if (footDownEl) {
+        footDownEl.textContent = this.formatBytes(totalDownloadedBytes);
+      }
+
+      const footUpEl = document.getElementById('footTotalUp');
+      if (footUpEl) {
+        footUpEl.textContent = this.formatBytes(totalUploadedBytes);
+      }
+
       // Auto-save progress every 5 seconds
       if (this.tickerSec % 5 === 0) {
         this.saveSwarms();
@@ -1673,6 +1753,13 @@ class HavenMissionControl {
      REAL BITTORRENT ENGINE EVENT STREAM (WEBTORRENT BACKEND)
      ------------------------------------------------------------------------- */
   initEngineEvents() {
+    if (window.havenNative?.onKernelLog) {
+      window.havenNative.onKernelLog(({ timestamp, tag, message, level }) => {
+        this.appendLog(`[${timestamp}] [${tag}] ${message}`);
+        console.log(`%c[${tag}]`, 'color: #10b981; font-weight: bold;', message);
+      });
+    }
+
     if (window.havenNative?.onTorrentStatusBatch) {
       window.havenNative.onTorrentStatusBatch((batch) => {
         if (!Array.isArray(batch)) return;
@@ -1797,11 +1884,11 @@ class HavenMissionControl {
 
     const span = document.createElement('span');
     span.textContent = line;
-    if (line.includes('[FIREWALL]') || line.includes('[SAFEPATH] Blocked') || line.includes('[ERROR]') || line.includes('[WARN]')) {
+    if (line.includes('[ERR') || line.includes('[WARN') || line.includes('Error') || line.includes('Warning')) {
       span.className = 'log-warn';
-    } else if (line.includes('[TRACKER]')) {
+    } else if (line.includes('[DHT') || line.includes('[TRACKER')) {
       span.className = 'log-tr';
-    } else if (line.includes('[VERIFY]') || line.includes('[SAFEPATH]')) {
+    } else if (line.includes('[VERIFY') || line.includes('[DISK') || line.includes('[SAFEPATH') || line.includes('[BENCODE') || line.includes('[WIRE')) {
       span.className = 'log-ver';
     } else {
       span.className = 'log-dht';
@@ -1837,72 +1924,57 @@ class HavenMissionControl {
     this.appendLog(`[INGEST] Inspecting .torrent package: ${file.name} (${file.size} bytes)`);
 
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const hashBuffer = await crypto.subtle.digest('SHA-1', arrayBuffer);
-      const defaultHashHex = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
-
-      const baseName = (parsedMeta && parsedMeta.name) ? parsedMeta.name : file.name.replace(/\.torrent$/i, '');
-      const isRisky = /\.(exe|bat|cmd|ps1|iso|vbs)$/i.test(baseName);
-      
-      const realBytes = (parsedMeta && parsedMeta.totalBytes) ? parsedMeta.totalBytes : (file.size > 200000 ? file.size * 200 : 786432000);
-      const formattedSize = this.formatBytes(realBytes);
-      const hashHex = (parsedMeta && parsedMeta.infoHash) ? parsedMeta.infoHash : defaultHashHex;
-
-      let packageFiles = [];
-      if (parsedMeta && Array.isArray(parsedMeta.files) && parsedMeta.files.length > 0) {
-        packageFiles = parsedMeta.files.map(f => {
-          const subRisky = /\.(exe|bat|cmd|ps1|iso|vbs)$/i.test(f.name);
-          return {
-            name: f.name,
-            path: '/downloads/',
-            size: this.formatBytes(f.sizeBytes),
-            sizeBytes: f.sizeBytes,
-            verdict: subRisky ? 'badge-risk' : 'verdict-ok',
-            verdictText: subRisky ? '[EXEC RISK]' : '[SAFEPATH OK]',
-            isRisk: subRisky,
-            locked: subRisky,
-            selected: !subRisky
-          };
-        });
-      } else {
-        packageFiles = [
-          {
-            name: baseName,
-            path: '/downloads/',
-            size: formattedSize,
-            sizeBytes: realBytes,
-            verdict: isRisky ? 'badge-risk' : 'verdict-ok',
-            verdictText: isRisky ? '[EXEC RISK]' : '[SAFEPATH OK]',
-            isRisk: isRisky,
-            locked: isRisky,
-            selected: !isRisky
-          }
-        ];
-      }
-
-      let fileBufferB64 = (parsedMeta && parsedMeta.buffer) ? parsedMeta.buffer : null;
-      if (!fileBufferB64) {
+      let meta = parsedMeta;
+      if (!meta && window.havenNative?.parseTorrentFile) {
+        // Read buffer from file and send to Main process for authentic Bencode decoding via parse-torrent
+        const arrayBuffer = await file.arrayBuffer();
         const u8 = new Uint8Array(arrayBuffer);
         let bin = '';
         for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
-        fileBufferB64 = btoa(bin);
+        const b64 = btoa(bin);
+
+        meta = await window.havenNative.parseTorrentFile({
+          name: file.name,
+          buffer: b64,
+          path: file.path || null
+        });
       }
 
+      if (!meta || !meta.infoHash) {
+        throw new Error('Failed to parse authentic Bencode infoHash from .torrent file.');
+      }
+
+      const formattedSize = this.formatBytes(meta.totalBytes || 0);
+
       const pkgData = {
-        name: baseName,
-        hash: hashHex,
+        name: meta.name || file.name.replace(/\.torrent$/i, ''),
+        hash: meta.infoHash.toLowerCase(),
         sizeFormatted: formattedSize,
-        sizeBytes: realBytes,
-        files: packageFiles,
-        fileBuffer: fileBufferB64,
-        source: (parsedMeta && parsedMeta.path) ? parsedMeta.path : null
+        sizeBytes: meta.totalBytes,
+        pieceLength: meta.pieceLength,
+        pieces: meta.pieces,
+        files: (meta.files || []).map(f => ({
+          name: f.name,
+          path: f.path || '/downloads/',
+          size: this.formatBytes(f.sizeBytes),
+          sizeBytes: f.sizeBytes,
+          verdict: f.isRisk ? 'badge-risk' : 'verdict-ok',
+          verdictText: f.isRisk ? '[EXEC RISK]' : '[SAFEPATH OK]',
+          isRisk: f.isRisk,
+          locked: f.isRisk,
+          selected: !f.isRisk
+        })),
+        fileBuffer: meta.buffer || null,
+        source: meta.sourcePath || (file.path || null),
+        announce: meta.announce || []
       };
 
       // Open unified modal asking "WHERE SHOULD IT BE DOWNLOADED?" before starting
       this.openAddTorrentModal(pkgData);
-      this.appendLog(`[BENCODE] Check-then-allocate validated. Info-Hash: ${hashHex.slice(0, 20)}...`);
+      this.appendLog(`[BENCODE] Decoded authentic metadata: ${pkgData.name} | InfoHash: ${pkgData.hash.slice(0, 16)}... | Size: ${pkgData.sizeFormatted}`);
     } catch (e) {
       this.appendLog(`[ERROR] Failed to parse .torrent package: ${e.message}`);
+      console.error(e);
     }
   }
 

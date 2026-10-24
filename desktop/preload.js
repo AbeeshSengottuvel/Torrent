@@ -45,12 +45,19 @@ const nativeBridge = {
   selectFolder: () => ipcRenderer.invoke('dialog:selectFolder'),
   selectTorrentFile: () => ipcRenderer.invoke('dialog:selectTorrentFile'),
   
-  // SafePath File Inspection
+  // SafePath File Inspection & Real Bencode Parsing
   readTorrentFile: (filePath) => {
     if (!isNonEmptyString(filePath)) {
       return Promise.reject(new Error('[SafePath] Invalid torrent file path.'));
     }
-    return ipcRenderer.invoke('file:readTorrent', filePath.trim());
+    return ipcRenderer.invoke('torrent:parseTorrentFile', filePath.trim());
+  },
+
+  parseTorrentFile: (fileOrPath) => {
+    if (!fileOrPath) {
+      return Promise.reject(new Error('[SafePath] Invalid torrent file or buffer.'));
+    }
+    return ipcRenderer.invoke('torrent:parseTorrentFile', fileOrPath);
   },
 
   // Shell / Path Operations
@@ -150,6 +157,7 @@ const nativeBridge = {
   onTorrentStatusBatch: (callback) => createSafeListener('torrent:statusBatch', callback),
   onTorrentMetadata: (callback) => createSafeListener('torrent:metadata', callback),
   onTorrentDone: (callback) => createSafeListener('torrent:done', callback),
+  onKernelLog: (callback) => createSafeListener('kernel:log', callback),
   onUpdateAvailable: (callback) => createSafeListener('update:available', callback),
   onOpenMagnet: (callback) => createSafeListener('open-magnet', callback),
   onOpenTorrentFile: (callback) => createSafeListener('open-torrent-file', callback)
