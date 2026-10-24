@@ -138,14 +138,29 @@ function createWindow() {
   mainWindow.webContents.on('will-navigate', (event) => event.preventDefault());
   mainWindow.webContents.on('will-redirect', (event) => event.preventDefault());
 
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    console.log(`[Renderer Level ${level}] ${message} (${sourceId}:${line})`);
+  });
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.error(`[Load Error] ${errorCode}: ${errorDescription} (${validatedURL})`);
+    appendBootLog(`[Load Error] ${errorCode}: ${errorDescription} (${validatedURL})`);
+  });
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('[Renderer] Loaded successfully');
+    appendBootLog('[Renderer] Loaded successfully');
+  });
+
   // 5. Load UI exclusively via custom haven:// protocol
   mainWindow.loadURL('haven://app/index.html');
 
-  mainWindow.on('close', (event) => {
-    if (!app.isQuitting) {
-      event.preventDefault();
-      mainWindow.hide();
-    }
+  mainWindow.once('ready-to-show', () => {
+    appendBootLog('mainWindow ready-to-show event fired');
+    mainWindow.show();
+  });
+
+  mainWindow.on('closed', () => {
+    appendBootLog('mainWindow closed');
+    mainWindow = null;
   });
 }
 
@@ -188,27 +203,54 @@ ipcMain.handle('app:checkForUpdates', async () => {
   };
 });
 
-app.whenReady().then(() => {
-  if (process.platform === 'win32') {
-    app.setAppUserModelId('org.haven.desktop');
-  }
-  setupCustomProtocol();
-  createWindow();
+function appendBootLog(msg) {
+  try {
+    fs.appendFileSync(path.join(__dirname, '..', 'haven_boot.log'), `[${new Date().toISOString()}] ${msg}\n`);
+  } catch (_) {}
+}
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    } else {
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  appendBootLog('Secondary instance detected; quitting immediately.');
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    appendBootLog('Second instance triggered; restoring and focusing main window.');
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();
+      mainWindow.focus();
     }
   });
-});
+
+  app.whenReady().then(() => {
+    appendBootLog('app.whenReady fired');
+    if (process.platform === 'win32') {
+      app.setAppUserModelId('org.haven.desktop');
+    }
+    setupCustomProtocol();
+    appendBootLog('Custom protocol registered');
+    createWindow();
+    appendBootLog('createWindow called');
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      } else if (mainWindow) {
+        mainWindow.show();
+      }
+    });
+  });
+}
 
 app.on('before-quit', () => {
+  appendBootLog('app.before-quit fired');
   app.isQuitting = true;
 });
 
 app.on('window-all-closed', () => {
+  appendBootLog('app.window-all-closed fired');
   if (process.platform !== 'darwin') {
     app.quit();
   }
