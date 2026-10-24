@@ -1261,3 +1261,57 @@ body.mission-control-body {
 .footer-metric strong {
   color: var(--text-main);
 }
+
+/* ==========================================================================
+   7. PRODUCTION EMPTY WORKSPACE STYLES
+   ========================================================================== */
+.empty-state-row td {
+  padding: 48px 24px !important;
+  text-align: center;
+  background: var(--bg-surface);
+}
+
+.empty-state-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.empty-icon {
+  font-size: 32px;
+  color: var(--color-green);
+  margin-bottom: 4px;
+}
+
+.empty-title {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--text-main);
+}
+
+.empty-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  max-width: 520px;
+  line-height: 1.5;
+}
+
+.empty-subtext {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 6px;
+  letter-spacing: 0.04em;
+}
+
+.empty-manifest {
+  text-align: center !important;
+  color: var(--text-dim);
+  padding: 24px 10px !important;
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
