@@ -46,7 +46,22 @@ namespace HavenInstaller
                 if (File.Exists(payloadZip))
                 {
                     Console.WriteLine("Extracting application payload...");
-                    ZipFile.ExtractToDirectory(payloadZip, installDir);
+                    using (ZipArchive archive = ZipFile.OpenRead(payloadZip))
+                    {
+                        foreach (ZipArchiveEntry entry in archive.Entries)
+                        {
+                            string destPath = Path.Combine(installDir, entry.FullName);
+                            string destDir = Path.GetDirectoryName(destPath);
+                            if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir))
+                            {
+                                Directory.CreateDirectory(destDir);
+                            }
+                            if (!string.IsNullOrEmpty(entry.Name))
+                            {
+                                entry.ExtractToFile(destPath, true);
+                            }
+                        }
+                    }
                 }
                 else
                 {
@@ -76,9 +91,13 @@ namespace HavenInstaller
                     }
                 }
 
-                // 3. Create Start Menu Shortcut via PowerShell WScript.Shell
-                Console.WriteLine("Creating Start Menu shortcut...");
+                // 3. Create Start Menu and Desktop Shortcuts
+                Console.WriteLine("Creating Start Menu and Desktop shortcuts...");
                 CreateShortcut(shortcutPath, mainExe, installDir, "Haven - Secure BitTorrent Client");
+
+                string desktopDir = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+                string desktopShortcut = Path.Combine(desktopDir, "Haven.lnk");
+                CreateShortcut(desktopShortcut, mainExe, installDir, "Haven - Secure BitTorrent Client");
 
                 // 4. Register uninstaller in HKCU
                 Console.WriteLine("Registering uninstaller in user registry...");
@@ -147,7 +166,7 @@ namespace HavenInstaller
         static void CreateShortcut(string shortcutPath, string targetPath, string workingDir, string description)
         {
             string psCmd = string.Format(
-                "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('{0}'); $s.TargetPath = '{1}'; $s.WorkingDirectory = '{2}'; $s.Description = '{3}'; $s.Save()",
+                "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('{0}'); $s.TargetPath = '{1}'; $s.WorkingDirectory = '{2}'; $s.Description = '{3}'; $s.IconLocation = '{1},0'; $s.Save()",
                 shortcutPath.Replace("'", "''"),
                 targetPath.Replace("'", "''"),
                 workingDir.Replace("'", "''"),

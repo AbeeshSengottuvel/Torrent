@@ -23,9 +23,11 @@ if (!(Test-Path $appDir)) {
     Pop-Location
 }
 
+$iconIco = Join-Path $root "desktop\icon.ico"
+
 # 1. Compile Uninstaller into application directory
 Write-Host "Compiling per-user Uninstaller..."
-& $csc /target:exe /out:$uninstallerExe /platform:x64 $uninstallerSrc
+& $csc /target:exe /out:$uninstallerExe /platform:x64 /win32icon:$iconIco $uninstallerSrc
 Write-Host "  -> $uninstallerExe"
 
 # 2. Build Portable ZIP
@@ -38,7 +40,7 @@ Write-Host "  -> $portableZip ($([Math]::Round((Get-Item $portableZip).Length / 
 
 # 3. Compile Per-User Setup Installer
 Write-Host "Compiling per-user Installer (.exe)..."
-& $csc /target:exe /out:$installerExe /platform:x64 /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll $installerSrc
+& $csc /target:exe /out:$installerExe /platform:x64 /win32icon:$iconIco /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll $installerSrc
 Write-Host "  -> $installerExe"
 
 # 4. Generate SHA256 checksums

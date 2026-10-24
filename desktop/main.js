@@ -108,6 +108,10 @@ function createWindow() {
   ses.setPermissionCheckHandler(() => false);
   ses.setDevicePermissionHandler(() => false);
 
+  const iconPath = path.join(__dirname, process.platform === 'win32' ? 'icon.ico' : 'icon.png');
+  const fallbackIcon = path.join(__dirname, 'icon.png');
+  const resolvedIcon = fs.existsSync(iconPath) ? iconPath : (fs.existsSync(fallbackIcon) ? fallbackIcon : undefined);
+
   mainWindow = new BrowserWindow({
     width: 1240,
     height: 820,
@@ -115,6 +119,7 @@ function createWindow() {
     minHeight: 580,
     backgroundColor: '#0b0f19',
     title: 'Haven - Secure BitTorrent Client',
+    icon: resolvedIcon,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -184,6 +189,9 @@ ipcMain.handle('app:checkForUpdates', async () => {
 });
 
 app.whenReady().then(() => {
+  if (process.platform === 'win32') {
+    app.setAppUserModelId('org.haven.desktop');
+  }
   setupCustomProtocol();
   createWindow();
 

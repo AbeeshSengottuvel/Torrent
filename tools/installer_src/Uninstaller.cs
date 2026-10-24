@@ -25,11 +25,18 @@ namespace HavenUninstaller
 
             try
             {
-                // 1. Remove Start Menu shortcut
+                // 1. Remove Start Menu and Desktop shortcuts
                 if (File.Exists(startMenuShortcut))
                 {
-                    Console.WriteLine("Removing shortcut...");
+                    Console.WriteLine("Removing Start Menu shortcut...");
                     File.Delete(startMenuShortcut);
+                }
+
+                string desktopShortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "Haven.lnk");
+                if (File.Exists(desktopShortcut))
+                {
+                    Console.WriteLine("Removing Desktop shortcut...");
+                    File.Delete(desktopShortcut);
                 }
 
                 // 2. Remove registry entry
