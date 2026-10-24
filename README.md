@@ -3,11 +3,23 @@
 > **A fast, calm, native BitTorrent client designed for radical privacy, zero telemetry, and fail-closed network security.**  
 > Built with a defense-in-depth architecture that assumes every peer on the internet is hostile.
 
+[![Website](https://img.shields.io/badge/Website-abeeshsengottuvel.github.io%2FTorrent-10b981.svg)](https://abeeshsengottuvel.github.io/Torrent/)
+[![Live Experience](https://img.shields.io/badge/Live_Demo-Try_in_Browser-38bdf8.svg)](https://abeeshsengottuvel.github.io/Torrent/experience.html)
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-blue.svg)](https://opensource.org/licenses/MPL-2.0)
 [![Rust](https://img.shields.io/badge/Rust-1.75+-orange.svg)](https://www.rust-lang.org/)
 [![Security Invariants](https://img.shields.io/badge/Security-INV--01_to_INV--14-emerald.svg)](docs/PLAN.md)
 [![Zero Telemetry](https://img.shields.io/badge/Telemetry-Strictly_0%25-brightgreen.svg)](tools/check_no_telemetry.py)
 [![Architecture Spec](https://img.shields.io/badge/Docs-ARCHITECTURE.md-informational.svg)](docs/ARCHITECTURE.md)
+
+---
+
+## 🌐 Official Website & Online Demo
+
+The official Haven website is deployed and live on GitHub Pages:
+
+* 🚀 **Main Landing Page**: **[https://abeeshsengottuvel.github.io/Torrent/](https://abeeshsengottuvel.github.io/Torrent/)**
+* ⚡ **Live Web Experience (Interactive Demo)**: **[https://abeeshsengottuvel.github.io/Torrent/experience.html](https://abeeshsengottuvel.github.io/Torrent/experience.html)**
+* 📦 **Download & Easy Setup Guide**: **[https://abeeshsengottuvel.github.io/Torrent/download.html](https://abeeshsengottuvel.github.io/Torrent/download.html)**
 
 ---
 
