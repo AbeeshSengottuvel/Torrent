@@ -6,23 +6,21 @@ echo "  Haven - Secure, Ad-Free BitTorrent Client"
 echo "========================================================"
 echo ""
 
-if command -v node >/dev/null 2>&1; then
-    echo "Starting Haven preview server via Node.js..."
-    if command -v xdg-open >/dev/null 2>&1; then
-        xdg-open http://127.0.0.1:3000 &
-    elif command -v open >/dev/null 2>&1; then
-        open http://127.0.0.1:3000 &
-    fi
-    node web/server.js
-elif command -v python3 >/dev/null 2>&1; then
-    echo "Starting Haven preview server via Python 3..."
-    if command -v xdg-open >/dev/null 2>&1; then
-        xdg-open http://127.0.0.1:3000 &
-    elif command -v open >/dev/null 2>&1; then
-        open http://127.0.0.1:3000 &
-    fi
-    cd web && python3 -m http.server 3000
-else
-    echo "[Error] Neither Node.js nor Python 3 was found on your system."
-    exit 1
+if [ -f "desktop/dist/Haven-linux-x64/Haven" ]; then
+    echo "Launching Native Desktop Application..."
+    ./desktop/dist/Haven-linux-x64/Haven &
+    exit 0
 fi
+
+if [ -d "desktop/node_modules/electron" ]; then
+    echo "Launching Desktop App via Electron..."
+    cd desktop && npm start
+    exit 0
+fi
+
+echo "[Notice] Native desktop binary not found."
+echo "To build or run the desktop client:"
+echo "  cd desktop"
+echo "  npm install"
+echo "  npm start"
+exit 0

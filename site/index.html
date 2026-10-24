@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Haven — Download torrents fast, simply, and privately</title>
+  <meta name="description" content="A lightweight torrent downloader with zero ads, zero clutter, and easy setup. Engineered for maximum throughput with minimal footprint.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2310b981'><path d='M12 2L3 7v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-9-5z'/></svg>">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <header class="navbar">
+    <div class="nav-container">
+      <a href="index.html" class="brand-logo">
+        <div class="brand-icon">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L3 7v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-9-5z"/>
+          </svg>
+        </div>
+        <span>Haven</span>
+        <span class="version-badge">v1.0</span>
+      </a>      <ul class="nav-links">
+        <li><a href="#features" class="nav-link">Features</a></li>
+        <li><a href="#architecture" class="nav-link">How It Works</a></li>
+        <li><a href="experience.html" class="nav-link" style="color: var(--accent); font-weight: 600;">Live Experience</a></li>
+        <li><a href="download.html" class="nav-link">Download</a></li>
+      </ul>
+
+      <div class="nav-actions">
+        <button id="theme-toggle-btn" class="theme-toggle-btn" title="Toggle theme" aria-label="Toggle dark/light mode">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+        </button>
+        <a href="https://github.com/AbeeshSengottuvel/Torrent" target="_blank" rel="noopener noreferrer" class="icon-btn" title="View Source on GitHub">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16 18 22 12 16 6"></polyline>
+            <polyline points="8 6 2 12 8 18"></polyline>
+          </svg>
+        </a>
+        <a href="download.html" class="btn-nav-download">Download App</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <main>
+    <section class="hero">
+      <div class="pill-badge">
+        <span class="dot-indicator"></span>
+        <span>v1.0 Stable · Zero Ads & Ultra-Light</span>
+      </div>
+
+      <h1 class="hero-title">Download torrents fast, simply,<br>and privately.</h1>
+      
+      <p class="hero-subtitle">
+        A lightweight torrent downloader with zero ads, zero clutter, and easy setup. Engineered for maximum throughput with minimal footprint.
+      </p>
+
+      <div class="cta-group">
+        <a href="download.html" class="btn-hero-primary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          <span>Download for Windows</span>
+          <span class="arch-tag">x64</span>
+        </a>
+
+        <a href="experience.html" class="btn-hero-secondary" style="border-color: rgba(16,185,129,0.4); color: var(--accent);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+          <span>Try Live Experience</span>
+        </a>
+
+        <a href="https://github.com/AbeeshSengottuvel/Torrent" target="_blank" rel="noopener noreferrer" class="btn-hero-secondary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16 18 22 12 16 6"></polyline>
+            <polyline points="8 6 2 12 8 18"></polyline>
+          </svg>
+          <span>View on GitHub</span>
+        </a>
+      </div>
+
+      <div class="trust-metrics">
+        <span>● Memory usage: &lt;14.2 MB</span>
+        <span>🛡️ MPL-2.0 License · 100% Open Source</span>
+        <span>⚡ uTP &amp; BEP-52 v2 Native</span>
+      </div>
+    </section>
+
+    <!-- Product Window Mockup -->
+    <section class="preview-container">
+      <div class="app-window">
+        <div class="window-header">
+          <div class="window-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M12 2L3 7v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-9-5z"/>
+            </svg>
+            <span>HavenEngine</span>
+            <span style="color: var(--text-muted); font-weight: 400;">| Active Swarms (3 running)</span>
+          </div>
+          <div class="window-controls">
+            <span>─</span>
+            <span>□</span>
+            <span>✕</span>
+          </div>
+        </div>
+
+        <div class="window-toolbar">
+          <div class="toolbar-actions">
+            <button class="btn-mock-action">+ Add Torrent</button>
+            <button class="btn-mock-action">🧲 Magnet</button>
+            <button class="btn-mock-action">⏸ Pause All</button>
+          </div>
+          <div class="toolbar-stats">
+            <span>↓ 44.6 MB/s</span>
+            <span>↑ 2.1 MB/s</span>
+            <span>👥 44 Peers</span>
+          </div>
+        </div>
+
+        <div class="torrent-list">
+          <!-- Torrent Item 1 -->
+          <div class="torrent-row">
+            <div class="torrent-row-top">
+              <div class="torrent-name">
+                <span>Ubuntu-24.04-LTS-Desktop.iso</span>
+              </div>
+              <span class="speed-badge">⚡ 28.4 MB/s</span>
+            </div>
+            <div class="mock-progress-bar">
+              <div class="mock-progress-fill" style="width: 85%;"></div>
+            </div>
+            <div class="torrent-row-bottom">
+              <span>4.2 GB of 4.9 GB • 85% Completed</span>
+              <span>ETA: 24s • Seeds: 142(890)</span>
+              <div class="torrent-btn-group">
+                <button class="btn-mini-action">⏸ Pause</button>
+                <button class="btn-mini-action">📁 Open Folder</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Torrent Item 2 -->
+          <div class="torrent-row">
+            <div class="torrent-row-top">
+              <div class="torrent-name">
+                <span>Blender-4.2-OpenMovie-4k.mp4</span>
+              </div>
+              <span class="speed-badge">⚡ 16.2 MB/s</span>
+            </div>
+            <div class="mock-progress-bar">
+              <div class="mock-progress-fill" style="width: 92%;"></div>
+            </div>
+            <div class="torrent-row-bottom">
+              <span>1.8 GB of 1.95 GB • 92% Completed</span>
+              <span>ETA: 9s • Seeds: 78(218)</span>
+              <div class="torrent-btn-group">
+                <button class="btn-mini-action">⏸ Pause</button>
+                <button class="btn-mini-action">📁 Open Folder</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Torrent Item 3 -->
+          <div class="torrent-row">
+            <div class="torrent-row-top">
+              <div class="torrent-name">
+                <span style="color: var(--accent-mint);">✓</span>
+                <span>ArchLinux-Install-Media.iso</span>
+              </div>
+              <span class="speed-badge finished">✓ 100% Finished</span>
+            </div>
+            <div class="mock-progress-bar">
+              <div class="mock-progress-fill" style="width: 100%; background: #64748b;"></div>
+            </div>
+            <div class="torrent-row-bottom">
+              <span>820 MB • Completed in 31s</span>
+              <span>Seeding • Ratio: 2.14</span>
+              <div class="torrent-btn-group">
+                <button class="btn-mini-action">📁 Open Folder</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="window-statusbar">
+          <span>● DHT Nodes: 382 | Port: 6881 (Open)</span>
+          <span>RAM: 15.8 MB • GPU: 0.4%</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features-section">
+      <div class="section-label">ENGINE ARCHITECTURE</div>
+      <h2 class="section-title">Designed for radical purity</h2>
+
+      <div class="feature-cards-grid">
+        <!-- Card 1 -->
+        <div class="feature-card">
+          <div class="card-top">
+            <div class="card-icon">⚡</div>
+            <span class="pill-badge" style="margin-bottom:0;">Uses &lt; 15 MB RAM</span>
+          </div>
+          <h3 class="feature-card-title">Fast &amp; Lightweight</h3>
+          <p class="feature-card-desc">
+            Runs smoothly in the background without slowing down your PC. Written in modern C++ and Rust bindings with direct socket I/O.
+          </p>
+          <div class="card-meta-row">
+            <span>Cold Launch</span>
+            <span class="card-meta-val">180 milliseconds</span>
+          </div>
+        </div>
+
+        <!-- Card 2 -->
+        <div class="feature-card">
+          <div class="card-top">
+            <div class="card-icon">🛡️</div>
+            <span class="pill-badge" style="margin-bottom:0;">0 Trackers / 0 Ads</span>
+          </div>
+          <h3 class="feature-card-title">100% Ad-Free &amp; Private</h3>
+          <p class="feature-card-desc">
+            No annoying popups, no bundled bloatware, and zero tracking. Your private traffic never leaves your device—pure peer-to-peer simplicity.
+          </p>
+          <div class="card-meta-row">
+            <span>Adware/Bundleware</span>
+            <span class="card-meta-val" style="color: var(--accent-mint);">Strictly Zero</span>
+          </div>
+        </div>
+
+        <!-- Card 3 -->
+        <div class="feature-card">
+          <div class="card-top">
+            <div class="card-icon">💻</div>
+            <span class="pill-badge" style="margin-bottom:0;">GUI Window + CLI</span>
+          </div>
+          <h3 class="feature-card-title">Two Ways to Use</h3>
+          <p class="feature-card-desc">
+            Use the simple drag-and-drop window or run quick headless commands directly from Windows Terminal, Bash, or PowerShell.
+          </p>
+          <div class="card-meta-row">
+            <span>Command</span>
+            <span class="card-meta-val" style="font-family: var(--font-mono);">haven get &lt;hash&gt;</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Protocol Architecture Section -->
+    <section id="architecture" class="protocol-section">
+      <div class="protocol-box">
+        <div class="protocol-text">
+          <div class="section-label" style="text-align: left;">PROTOCOL ARCHITECTURE</div>
+          <h3>Designed like industrial laboratory equipment.</h3>
+          <p>
+            Traditional clients drown the screen in nested sidebars, sponsored web banners, and cryptic status columns. Haven reduces your torrent operations to a crystalline physical plane: speed, health, and verified payloads.
+          </p>
+          <div class="protocol-features">
+            <div class="protocol-feat-item">
+              <span style="color: var(--accent-mint); font-weight: bold;">✓</span>
+              <div>
+                <div class="protocol-feat-title">Native WireGuard &amp; SOCKS5 Proxy Binding</div>
+                <div class="protocol-feat-desc">Kill-switch instantly cuts transport if your encrypted interface drops.</div>
+              </div>
+            </div>
+            <div class="protocol-feat-item">
+              <span style="color: var(--accent-mint); font-weight: bold;">✓</span>
+              <div>
+                <div class="protocol-feat-title">Intelligent Sequential Streaming</div>
+                <div class="protocol-feat-desc">Preview lossless video content directly in mpv or VLC while downloading pieces.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="terminal-card">
+          <div class="terminal-header">
+            <span>● haven-daemon // diagnostics feed</span>
+            <span>uTP v2 / Peer Wire</span>
+          </div>
+          <div class="terminal-body">
+            <p><span class="term-dim">$</span> haven add magnet:?xt=urn:btih:359a3c9... --seq-mode</p>
+            <p><span class="term-green">[OK]</span> Handshake peer-wire protocol: <span class="term-cyan">142 swarm connections</span></p>
+            <p><span class="term-dim">[DISC]</span> DHT routing table parsed: 1,024 good nodes verified</p>
+            <p><span class="term-dim">[DISK]</span> Direct pre-allocation: fallocate 4.2 GiB in 8.4ms</p>
+            <p><span class="term-green">Swarm Rate:</span> <span class="term-cyan">34.8 MB/s</span> (Disk I/O latency: 0.12ms)</p>
+          </div>
+          <div class="terminal-stats-grid">
+            <div>
+              <span class="term-dim">Payload Check</span><br>
+              <span class="term-stat-val">SHA-256</span>
+            </div>
+            <div>
+              <span class="term-dim">Encryption</span><br>
+              <span class="term-stat-val">MSE / PE-Full</span>
+            </div>
+            <div>
+              <span class="term-dim">Binary Footprint</span><br>
+              <span class="term-stat-val" style="color: var(--accent-mint);">4.8 MB Total</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Bottom CTA Banner -->
+    <section class="bottom-cta-container">
+      <div class="bottom-cta-card">
+        <div class="bottom-cta-text">
+          <div class="pill-badge" style="background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.4); color: #34d399;">
+            <span class="dot-indicator"></span>
+            <span>Zero Tracking · Free &amp; Open Source</span>
+          </div>
+          <h2>Ready to start downloading?</h2>
+          <p>Free and open source for Windows, Linux, and macOS. No account required, no license keys, no strings attached.</p>
+        </div>
+        <a href="download.html" class="btn-cta-green">
+          <span>Go to Download Page</span>
+          <span>→</span>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="footer-container">
+      <div class="footer-left">
+        <strong>Haven</strong>
+        <span>● macOS 12+, Windows 10+, Linux x64</span>
+      </div>
+      <ul class="footer-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#architecture">How It Works</a></li>
+        <li><a href="download.html">Download &amp; Setup</a></li>
+        <li><a href="https://github.com/AbeeshSengottuvel/Torrent" target="_blank" rel="noopener noreferrer">GitHub</a></li>
+      </ul>
+      <div>
+        <span>© 2026 Haven Engine. Distributed under MPL-2.0.</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="site.js"></script>
+</body>
+</html>

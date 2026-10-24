@@ -26,20 +26,20 @@ This independent security review audited the active Haven codebase against the n
 
 | Invariant | Requirement Description | Status | Evidence (File & Test) | Risk / Severity |
 |---|---|---|---|---|
-| **INV-01** | App opens connections ONLY to peers, trackers, DHT, web seeds, update host, and user proxies. | **Implemented and tested** | Strict CSP (`connect-src 'none'`), Electron `session.webRequest` cancels renderer external requests; external fonts removed. | **Resolved** |
+| **INV-01** | App opens connections ONLY to peers, trackers, DHT, web seeds, update host, and user proxies. | **Partial** | Strict CSP (`connect-src 'none'`) and Electron `session.webRequest` deny renderer network access; Core network denial verified at compile time. Active wire packet capture of Engine pending. | **Medium** |
 | **INV-02** | In Private mode, zero packets leave except through selected VPN interface. Drop halts traffic within 1s. | **Implemented and tested** | `core/cairn-core/tests/netguard_leak_test.rs` (`test_leak_suite_vpn_drop_and_zero_traffic`, `test_leak_suite_reconnect_with_isp_leak_fails_closed`). | **Resolved** |
-| **INV-03** | No file is created, written, renamed, or deleted outside user-approved root. | **Implemented and tested** | `core/cairn-safety/src/safepath.rs` (`test_rejects_traversal`, `test_valid_component`, `test_collision_resolution`). | **Low**: Solid algorithmic confinement. Handle-based TOCTOU checks still needed. |
-| **INV-04** | No external trigger can start a download without explicit user confirmation in UI. | **Implemented and tested** | `core/cairn-core/src/state.rs` (`test_valid_lifecycle` mandates `AwaitingConfirm` state); UI modal requires click. | **Low**: Enforced by state machine. |
-| **INV-05** | App never executes, opens, or passes downloaded content to a shell or interpreter. | **Implemented and tested** | `core/cairn-safety/src/safepath.rs` (`test_risky_file_identification`). UI does not invoke shell open. | **Low**: Extension classification and warnings working. |
-| **INV-06** | Engine process cannot read DB, key material, or user files outside download/resume dirs. | **Implemented and tested** | `core/cairn-engine/src/sandbox.rs` (`test_file_access_enforcement`). | **Resolved** |
-| **INV-07** | Every message crossing process boundary is validated for size, schema, range. | **Implemented and tested** | `core/cairn-core/src/ipc.rs` (`test_frame_size_overflow_rejected`), `tests/ipc_auth_test.rs`. | **Resolved** |
-| **INV-08** | No secret appears in logs, crash dumps, command lines, or errors. | **Implemented and tested** | `core/cairn-core/src/keystore.rs`, `tests/log_redaction_test.rs` (`test_secret_canary_redaction`). | **Resolved** |
-| **INV-09** | Update accepted only if signed by pinned key, not expired, newer than installed. | **Implemented and tested** | `core/cairn-core/src/updater.rs` (5 tests passing: signature check, rollback rejection, expiry check, SHA-256 payload check); `desktop/main.js`. | **Resolved** |
-| **INV-10** | No parser allocates memory based on attacker-declared length before hard-limit check. | **Implemented and tested** | `core/cairn-core/src/bencode.rs` (`test_depth_overflow_rejected`, `test_string_length_overflow_rejected`); `cairn-safety`. | **Resolved** |
-| **INV-11** | Any internal error in Network Guard, SafePath, or updater results in blocking, not allowing. | **Implemented and tested** | `core/cairn-core/src/netguard.rs` (default state `WaitingForIface`/`Blocked`), `core/cairn-safety/src/safepath.rs`. | **Low**: Fail-closed architecture verified in tests. |
+| **INV-03** | No file is created, written, renamed, or deleted outside user-approved root. | **Partial** | Algorithmic path validation proven in `core/cairn-safety/src/safepath.rs` (6 unit tests). Handle-level TOCTOU checks (`openat2` / `FILE_FLAG_OPEN_REPARSE_POINT`) pending. | **Medium** |
+| **INV-04** | No external trigger can start a download without explicit user confirmation in UI. | **Implemented and tested** | `core/cairn-core/src/state.rs` (`test_valid_lifecycle` mandates `AwaitingConfirm` state); UI modal requires click. | **Resolved** |
+| **INV-05** | App never executes, opens, or passes downloaded content to a shell or interpreter. | **Implemented and tested** | `core/cairn-safety/src/safepath.rs` (`test_risky_file_identification`). UI does not invoke shell open. | **Resolved** |
+| **INV-06** | Engine process cannot read DB, key material, or user files outside download/resume dirs. | **Partial** | Directory containment logic in `core/cairn-engine/src/sandbox.rs` (`test_file_access_enforcement`). Multi-process OS sandboxing (Job Object / restricted token) pending integration. | **High** |
+| **INV-07** | Every message crossing process boundary is validated for size, schema, range. | **Partial** | Schema defined in `proto/cairn.proto`. IPC frame length caps tested in `cairn-core/src/ipc.rs`. Multi-process pipe daemon pending. | **Medium** |
+| **INV-08** | No secret appears in logs, crash dumps, command lines, or errors. | **Implemented and tested** | `core/cairn-core/src/keystore.rs` (`SecretKey256`), `tests/log_redaction_test.rs` (`test_secret_canary_redaction`). | **Resolved** |
+| **INV-09** | Update accepted only if signed by pinned key, not expired, newer than installed. | **Implemented and tested** | `core/cairn-core/src/updater.rs` (5 tests passing: signature check, rollback rejection, expiry check, SHA-256 payload check). | **Resolved** |
+| **INV-10** | No parser allocates memory based on attacker-declared length before hard-limit check. | **Implemented and tested** | `core/cairn-core/src/bencode.rs` (`test_depth_overflow_rejected`, `test_string_length_overflow_rejected`); `cairn-safety`; `cairn-fuzz`. | **Resolved** |
+| **INV-11** | Any internal error in Network Guard, SafePath, or updater results in blocking, not allowing. | **Implemented and tested** | `core/cairn-core/src/netguard.rs` (default state `WaitingForIface`/`Blocked`), `core/cairn-safety/src/safepath.rs`. | **Resolved** |
 | **INV-12** | Shipped binaries contain no telemetry endpoint, analytics SDK, or ad SDK. | **Implemented and tested** | `tools/check_no_telemetry.py` repository-wide automated scan passes with 0 violations. | **Resolved** |
-| **INV-13** | In Stealth mode, torrent names never appear in notifications, recents, or task switcher. | **Partial** | Privacy architecture in UI; native OS window capture masking hooked in Electron `setContentProtection(true)`. | **Low** |
-| **INV-14** | A torrent that crashes Engine is automatically paused and flagged as SUSPECT. | **Implemented and tested** | `core/cairn-core/src/state.rs` (`test_engine_crash_flagged_as_suspect`). | **Low**: Verified in state machine tests. |
+| **INV-13** | In Stealth mode, torrent names never appear in notifications, recents, or task switcher. | **Partial** | Window capture blocked via Electron `setContentProtection(true)`. OS notification masking and task switcher masking pending. | **Medium** |
+| **INV-14** | A torrent that crashes Engine is automatically paused and flagged as SUSPECT. | **Implemented and tested** | `core/cairn-core/src/state.rs` (`test_engine_crash_flagged_as_suspect`). | **Resolved** |
 
 ---
 
@@ -47,29 +47,29 @@ This independent security review audited the active Haven codebase against the n
 
 | ID | Requirement | Component | Status | Evidence | Risk |
 |---|---|---|---|---|---|
-| **SR-01** | Engine runs sandboxed with no access to DB or keys | Engine, Core | **Implemented and tested** | `core/cairn-engine/src/sandbox.rs` (`EngineSandboxPolicy`). | Resolved |
+| **SR-01** | Engine runs sandboxed with no access to DB or keys | Engine, Core | **Partial** | `core/cairn-engine/src/sandbox.rs` policy written; multi-process launcher pending. | High |
 | **SR-02** | Core has no network permission | Core | **Implemented and tested** | `core/cairn-core/tests/network_denial_test.rs` (tokio net omitted; zero network client deps). | Resolved |
 | **SR-03** | UI has no network permission or entitlement | UI | **Implemented and tested** | Strict CSP (`connect-src 'none'`), Electron `session.webRequest` cancellation hook, remote fonts removed. | Resolved |
 | **SR-04** | All parsers enforce limits from 17.1 | Engine, Core | **Implemented and tested** | `cairn-core/src/bencode.rs`, `cairn-safety/src/safepath.rs`, `cairn-fuzz/src/lib.rs`. | Resolved |
-| **SR-05** | SafePath confines all writes to approved root | Core, Engine | **Implemented and tested** | `cairn-safety/src/safepath.rs` (6 unit tests passing). | Low |
-| **SR-06** | No download starts without confirmation | Core, UI | **Implemented and tested** | `cairn-core/src/state.rs`, Add Torrent modal. | Low |
-| **SR-07** | Private mode leaks zero packets off VPN interface | Core, Engine | **Implemented and tested** | `core/cairn-core/tests/netguard_leak_test.rs` (4 leak & flap tests passing). | Resolved |
-| **SR-08** | Network Guard fails closed on any internal error | Core | **Implemented and tested** | `cairn-core/src/netguard.rs`. | Low |
-| **SR-09** | IPC authenticated with OS peer credentials + session token | Core, UI | **Implemented and tested** | `core/cairn-core/src/ipc.rs`, `tests/ipc_auth_test.rs`. | Resolved |
-| **SR-10** | IPC messages validated and size-limited | Core, Engine, UI | **Implemented and tested** | `core/cairn-core/src/ipc.rs` (4 MiB frame limit enforced). | Resolved |
-| **SR-11** | Sensitive settings need step-up confirmation | Core, UI | **Implemented and tested** | Step-up confirmation modal on delete/interface swap in UI and IPC contract. | Low |
-| **SR-12** | Secrets only in OS keystore, zeroized in memory | Core | **Implemented and tested** | `core/cairn-core/src/keystore.rs` (`SecretKey256` implements `ZeroizeOnDrop`). | Resolved |
+| **SR-05** | SafePath confines all writes to approved root | Core, Engine | **Partial** | `cairn-safety/src/safepath.rs` (6 unit tests passing). Handle-level TOCTOU kernel checks pending. | Medium |
+| **SR-06** | No download starts without confirmation | Core, UI | **Implemented and tested** | `cairn-core/src/state.rs`, Add Torrent modal. | Resolved |
+| **SR-07** | Private mode leaks zero packets off VPN interface | Core, Engine | **Partial** | `core/cairn-core/tests/netguard_leak_test.rs` (4 leak & flap tests passing). Hardware NIC PCAP test pending. | Medium |
+| **SR-08** | Network Guard fails closed on any internal error | Core | **Implemented and tested** | `cairn-core/src/netguard.rs`. | Resolved |
+| **SR-09** | IPC authenticated with OS peer credentials + session token | Core, UI | **Partial** | `core/cairn-core/src/ipc.rs` token auth tested in `tests/ipc_auth_test.rs`. OS peer creds (`SO_PEERCRED` / Named Pipe SID DACL) daemon pending. | High |
+| **SR-10** | IPC messages validated and size-limited | Core, Engine, UI | **Implemented and tested** | `core/cairn-core/src/ipc.rs` (4 MiB frame limit enforced and tested). | Resolved |
+| **SR-11** | Sensitive settings need step-up confirmation | Core, UI | **Partial** | Destructive deletion confirmation in UI; IPC step-up challenge-response pending. | Medium |
+| **SR-12** | Secrets only in OS keystore, zeroized in memory | Core | **Partial** | `core/cairn-core/src/keystore.rs` (`SecretKey256` zeroizes on drop). OS DPAPI/keystore backend pending. | High |
 | **SR-13** | Logs and crash reports are redacted and local | All | **Implemented and tested** | `core/cairn-core/tests/log_redaction_test.rs` canary test passes. | Resolved |
 | **SR-14** | Resume data integrity tags verified | Core | **Implemented and tested** | `core/cairn-core/src/resume.rs`, `tests/resume_integrity_test.rs`. | Resolved |
-| **SR-15** | Database uses parameterized queries only | Core | **Implemented and tested** | `core/cairn-core/src/db.rs` (PRAGMA secure_delete = ON, tests/db_test.rs). | Resolved |
-| **SR-16** | Updates verified via TUF metadata & platform signature | Updater | **Implemented and tested** | `core/cairn-core/src/updater.rs` (5 tests passing); `desktop/main.js`. | Resolved |
+| **SR-15** | Database uses parameterized queries only | Core | **Partial** | `core/cairn-core/src/db.rs` (PRAGMA secure_delete = ON, `tests/db_test.rs`). SQLCipher encryption pending. | Medium |
+| **SR-16** | Updates verified via TUF metadata & platform signature | Updater | **Partial** | `core/cairn-core/src/updater.rs` (5 tests passing). Offline `haven-sign` CLI and Authenticode verification pending Task D1. | High |
 | **SR-17** | No telemetry or ad SDK in any build | Build | **Implemented and tested** | `tools/check_no_telemetry.py` passes 0 violations. | Resolved |
-| **SR-18** | Downloaded files quarantined and risky types warned | Core, UI | **Implemented and tested** | `core/cairn-safety/src/safepath.rs` risky extension classification & UI warning badge. | Low |
-| **SR-19** | Untrusted text rendered via SafeText | UI | **Implemented, no test** | `web/app.js` and `SafeText`. | Low |
-| **SR-20** | Stealth mode hides names in notifications/recents | UI, Mobile | **Implemented and tested** | Electron `win.setContentProtection(true)` prevents window capture; masked titles. | Low |
-| **SR-21** | Torrent that crashes Engine is paused and flagged | Core | **Implemented and tested** | `cairn-core/src/state.rs:test_engine_crash_flagged_as_suspect`. | Low |
-| **SR-22** | Build hardening flags enabled | Build | **Implemented and tested** | `overflow-checks = true`, `panic = abort`, `opt-level = 3` in `core/Cargo.toml`. | Low |
-| **SR-23** | Releases signed with provenance, SBOM published | Pipeline | **Implemented and tested** | `core/cairn-core/tests/log_redaction_test.rs`, `.github/workflows/build-and-release.yml`. | Low |
+| **SR-18** | Downloaded files quarantined and risky types warned | Core, UI | **Partial** | `core/cairn-safety/src/safepath.rs` risky extension classification working. Windows Zone.Identifier write pending. | Medium |
+| **SR-19** | Untrusted text rendered via SafeText | UI | **Partial** | UI escaping and RTL isolation in `web/app.js`. Formal Dart SafeText widget pending Flutter integration. | Low |
+| **SR-20** | Stealth mode hides names in notifications/recents | UI, Mobile | **Partial** | Electron `win.setContentProtection(true)` prevents window capture. OS notification masking pending. | Medium |
+| **SR-21** | Torrent that crashes Engine is paused and flagged | Core | **Implemented and tested** | `cairn-core/src/state.rs:test_engine_crash_flagged_as_suspect`. | Resolved |
+| **SR-22** | Build hardening flags enabled | Build | **Implemented and tested** | `overflow-checks = true`, `panic = abort`, `opt-level = 3` in `core/Cargo.toml`. | Resolved |
+| **SR-23** | Releases signed with provenance, SBOM published | Pipeline | **Partial** | Scaffolding in `.github/workflows/build-and-release.yml`. Sigstore/provenance attestation pending Task D1b. | High |
 | **SR-24** | Android backups disabled, minimal permissions | Android | **Pending Phase 3** | Scheduled for mobile packaging phase. | Medium |
 | **SR-25** | Independent audit completed | Project | **Implemented and tested** | This document (`docs/AUDIT-1.md`). | None |
 

@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Haven — Live Web Experience & Interactive Client Demo</title>
+  <meta name="description" content="Interactive browser demonstration of Haven BitTorrent client. Experience transfers, inspector tabs, and fail-closed security.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; font-src 'self';">
+  <meta name="theme-color" content="#0b1329">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="stylesheet" href="experience.css">
+  <style>
+    .experience-banner {
+      background: #090e1d;
+      border-bottom: 1px solid #1e293b;
+      color: #94a3b8;
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      z-index: 9999;
+      position: relative;
+    }
+    .experience-banner-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .experience-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 10px #10b981;
+      animation: pulse 2s infinite;
+    }
+    .experience-banner-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .experience-btn-back {
+      color: #94a3b8;
+      text-decoration: none;
+      font-weight: 500;
+      padding: 6px 12px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      background: rgba(15, 23, 42, 0.6);
+      transition: all 0.2s;
+    }
+    .experience-btn-back:hover {
+      color: #fff;
+      border-color: #64748b;
+      background: #1e293b;
+    }
+    .experience-btn-dl {
+      background: #10b981;
+      color: #022c22 !important;
+      text-decoration: none;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 6px;
+      box-shadow: 0 2px 8px rgba(16,185,129,0.25);
+      transition: all 0.2s;
+    }
+    .experience-btn-dl:hover {
+      background: #34d399;
+      transform: translateY(-1px);
+    }
+    .app-container {
+      height: calc(100vh - 45px) !important;
+    }
+  </style>
+</head>
+<body class="theme-dark">
+  <!-- Live Demo Banner -->
+  <aside class="experience-banner">
+    <div class="experience-banner-title">
+      <span class="experience-dot"></span>
+      <strong style="color: #f1f5f9;">Haven Live Web Experience</strong>
+      <span style="opacity: 0.75;">— Interactive browser simulation. Test drive active transfers, inspector details, and the network guard.</span>
+    </div>
+    <div class="experience-banner-actions">
+      <a href="index.html" class="experience-btn-back">← Back to Overview</a>
+      <a href="download.html" class="experience-btn-dl">Download Native App (.exe)</a>
+    </div>
+  </aside>
+  <!-- Full Window Drag & Drop Overlay -->
+  <div id="dropOverlay" class="drag-drop-overlay hidden">
+    <div class="drop-target-card">
+      <div class="drop-icon-pulse">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+      </div>
+      <h3>Drop .torrent file to add</h3>
+      <p>SafePath sanitization & quarantine checks will be performed before downloading</p>
+    </div>
+  </div>
+
+  <div id="app" class="app-container">
+    <!-- Top App Navigation / Toolbar -->
+    <header class="top-toolbar">
+      <div class="brand-section">
+        <div class="logo-mark">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+            <polyline points="2 17 12 22 22 17"></polyline>
+            <polyline points="2 12 12 17 22 12"></polyline>
+          </svg>
+        </div>
+        <span class="brand-title" id="appBrandTitle">Haven</span>
+        <span class="version-badge">v1.0-preview</span>
+      </div>
+
+      <div class="toolbar-actions">
+        <button id="btnAddTorrent" class="btn btn-primary" title="Add Magnet link or .torrent (Ctrl+N)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          <span>Add Torrent</span>
+        </button>
+        <div class="btn-group">
+          <button id="btnPauseAll" class="btn btn-secondary" title="Pause all active transfers">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+            <span>Pause All</span>
+          </button>
+          <button id="btnResumeAll" class="btn btn-secondary" title="Resume paused transfers">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            <span>Resume All</span>
+          </button>
+        </div>
+        <button id="btnAltSpeed" class="btn btn-ghost" title="Toggle Alternative Speed Limits">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path></svg>
+          <span>Alt Speed</span>
+        </button>
+      </div>
+
+      <div class="search-filter-box">
+        <svg class="search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text" id="filterInput" placeholder="Filter transfers (Ctrl+F)..." autocomplete="off" spellcheck="false">
+      </div>
+
+      <div class="toolbar-utility">
+        <button id="btnDensity" class="icon-btn" title="Toggle View Density (Comfortable / Compact)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+        </button>
+        <button id="btnThemeToggle" class="icon-btn" title="Toggle Theme (Dark / Light)">
+          <svg id="themeIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+        </button>
+        <button id="btnSettings" class="icon-btn" title="Settings (Ctrl+,)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- GitHub Auto-Update Notification Banner (docs/PLAN.md Section 22) -->
+    <div id="updateBanner" class="update-banner hidden">
+      <div class="update-banner-content">
+        <span class="update-pulse-icon">🚀</span>
+        <span class="update-banner-text">
+          A new version of Haven (<strong id="updateVersionTag">v1.1.0</strong>) is available on GitHub!
+        </span>
+        <div class="update-banner-actions">
+          <button id="btnViewRelease" class="btn btn-secondary btn-sm">Release Notes</button>
+          <button id="btnDownloadUpdate" class="btn btn-primary btn-sm">Download Update</button>
+          <button id="btnCloseUpdateBanner" class="icon-btn-sm" title="Dismiss">✕</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Workspace Layout -->
+    <div class="workspace-body">
+      <!-- Left Sidebar (Filters, Categories, Tags) -->
+      <aside class="left-sidebar">
+        <div class="nav-group">
+          <div class="nav-header">STATUS</div>
+          <button class="nav-item active" data-filter="all">
+            <span class="nav-label">All Transfers</span>
+            <span class="nav-count" id="countAll">0</span>
+          </button>
+          <button class="nav-item" data-filter="downloading">
+            <span class="status-dot dot-downloading"></span>
+            <span class="nav-label">Downloading</span>
+            <span class="nav-count" id="countDownloading">0</span>
+          </button>
+          <button class="nav-item" data-filter="seeding">
+            <span class="status-dot dot-seeding"></span>
+            <span class="nav-label">Seeding</span>
+            <span class="nav-count" id="countSeeding">0</span>
+          </button>
+          <button class="nav-item" data-filter="completed">
+            <span class="status-dot dot-completed"></span>
+            <span class="nav-label">Completed</span>
+            <span class="nav-count" id="countCompleted">0</span>
+          </button>
+          <button class="nav-item" data-filter="paused">
+            <span class="status-dot dot-paused"></span>
+            <span class="nav-label">Paused</span>
+            <span class="nav-count" id="countPaused">0</span>
+          </button>
+          <button class="nav-item" data-filter="errors">
+            <span class="status-dot dot-error"></span>
+            <span class="nav-label">Errors / Suspect</span>
+            <span class="nav-count" id="countErrors">0</span>
+          </button>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-header">CATEGORIES</div>
+          <button class="nav-item" data-category="Linux ISOs">
+            <span class="nav-label">Linux Distributions</span>
+            <span class="nav-count">3</span>
+          </button>
+          <button class="nav-item" data-category="Open Datasets">
+            <span class="nav-label">Open Datasets</span>
+            <span class="nav-count">1</span>
+          </button>
+          <button class="nav-item" data-category="Media">
+            <span class="nav-label">Public Media</span>
+            <span class="nav-count">0</span>
+          </button>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-header">PRIVACY MODE</div>
+          <div class="privacy-mode-card">
+            <div class="privacy-header">
+              <span id="privacyModeBadge" class="mode-badge mode-private">Private Mode</span>
+            </div>
+            <p class="privacy-desc">Network Guard bound to VPN. Zero non-VPN packets escape.</p>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Center Transfer Table -->
+      <main class="center-content">
+        <div class="table-container">
+          <table class="transfer-table" id="transferTable">
+            <thead>
+              <tr>
+                <th style="width: 32px;"><input type="checkbox" id="selectAll"></th>
+                <th class="sortable" data-sort="name">Name</th>
+                <th class="sortable" data-sort="size" style="width: 100px;">Size</th>
+                <th class="sortable" data-sort="progress" style="width: 170px;">Progress</th>
+                <th class="sortable" data-sort="downSpeed" style="width: 105px;">Down</th>
+                <th class="sortable" data-sort="upSpeed" style="width: 105px;">Up</th>
+                <th class="sortable" data-sort="eta" style="width: 90px;">ETA</th>
+                <th class="sortable" data-sort="peers" style="width: 80px;">Peers</th>
+                <th class="sortable" data-sort="ratio" style="width: 70px;">Ratio</th>
+                <th style="width: 80px; text-align: right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="transferListBody">
+              <!-- Rendered dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </main>
+
+      <!-- Right Inspector Panel (Details, Files, Peers, Pieces, Speed Graph) -->
+      <aside class="right-inspector" id="rightInspector">
+        <div class="inspector-header">
+          <div class="inspector-title-row">
+            <h3 class="inspector-title" id="inspectorTorrentName">No Selection</h3>
+            <button id="btnCloseInspector" class="icon-btn-sm" title="Close Panel">✕</button>
+          </div>
+          <div class="inspector-tabs">
+            <button class="tab-btn active" data-tab="overview">Overview</button>
+            <button class="tab-btn" data-tab="files">Files</button>
+            <button class="tab-btn" data-tab="peers">Peers</button>
+            <button class="tab-btn" data-tab="trackers">Trackers</button>
+            <button class="tab-btn" data-tab="pieces">Pieces</button>
+            <button class="tab-btn" data-tab="graphs">Bandwidth</button>
+          </div>
+        </div>
+
+        <div class="inspector-body">
+          <!-- Overview Tab -->
+          <div id="tabOverview" class="tab-pane active">
+            <div class="inspector-section">
+              <div class="meta-grid">
+                <div class="meta-item">
+                  <span class="meta-label">Info Hash (SHA-1 / SHA-256)</span>
+                  <span class="meta-value mono" id="metaInfoHash">-</span>
+                </div>
+                <div class="meta-item">
+                  <span class="meta-label">Storage Location</span>
+                  <span class="meta-value" id="metaStoragePath">-</span>
+                </div>
+                <div class="meta-item">
+                  <span class="meta-label">Completed</span>
+                  <span class="meta-value" id="metaCompletedBytes">-</span>
+                </div>
+                <div class="meta-item">
+                  <span class="meta-label">Pieces</span>
+                  <span class="meta-value" id="metaPieces">-</span>
+                </div>
+                <div class="meta-item">
+                  <span class="meta-label">Sequential Download</span>
+                  <span class="meta-value" id="metaSequential">Disabled</span>
+                </div>
+                <div class="meta-item">
+                  <span class="meta-label">Security & Quarantine</span>
+                  <span class="meta-value color-safe" id="metaQuarantine">Mark-of-the-Web applied on completion</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Files Tab -->
+          <div id="tabFiles" class="tab-pane">
+            <div class="files-header-info">
+              <span>Sanitized via SafePath (SR-05)</span>
+            </div>
+            <ul class="file-tree-list" id="fileTreeList">
+              <!-- Rendered dynamically -->
+            </ul>
+          </div>
+
+          <!-- Peers Tab -->
+          <div id="tabPeers" class="tab-pane">
+            <div class="peers-list-container">
+              <table class="peers-table">
+                <thead>
+                  <tr>
+                    <th>Client (SafeText)</th>
+                    <th>Encrypted</th>
+                    <th>Down</th>
+                    <th>Up</th>
+                  </tr>
+                </thead>
+                <tbody id="peersListBody">
+                  <!-- Rendered dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Trackers Tab -->
+          <div id="tabTrackers" class="tab-pane">
+            <ul class="trackers-list" id="trackersList">
+              <!-- Rendered dynamically -->
+            </ul>
+          </div>
+
+          <!-- Pieces Tab -->
+          <div id="tabPieces" class="tab-pane">
+            <div class="pieces-header">
+              <span>Piece Map Visualizer (4,096 blocks)</span>
+            </div>
+            <canvas id="piecesCanvas" width="340" height="150" class="pieces-canvas"></canvas>
+            <div class="pieces-legend">
+              <span class="legend-item"><span class="legend-swatch swatch-done"></span> Verified</span>
+              <span class="legend-item"><span class="legend-swatch swatch-downloading"></span> Fetching</span>
+              <span class="legend-item"><span class="legend-swatch swatch-missing"></span> Missing</span>
+            </div>
+          </div>
+
+          <!-- Graphs Tab -->
+          <div id="tabGraphs" class="tab-pane">
+            <div class="graph-header">
+              <span>Bandwidth Realtime History</span>
+            </div>
+            <canvas id="speedCanvas" width="340" height="160" class="speed-canvas"></canvas>
+            <div class="graph-legend">
+              <span class="color-down">● Download</span>
+              <span class="color-up">● Upload</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Bottom Status Bar -->
+    <footer class="bottom-status-bar">
+      <div class="status-left">
+        <!-- Interactive Network Guard Chip (Section 18) -->
+        <button id="netguardChip" class="netguard-chip status-guarded" title="Click to test leak status or change interface">
+          <span class="chip-dot"></span>
+          <span id="netguardLabel" class="chip-text">Network Guard: Protected (wg0)</span>
+        </button>
+
+        <span class="status-divider"></span>
+        <span class="status-metric">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+          <span id="dhtNodes">DHT: 482 nodes</span>
+        </span>
+        <span class="status-metric">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+          <span id="diskFree">Free Space: 382.4 GB</span>
+        </span>
+      </div>
+
+      <div class="status-right">
+        <span class="speed-indicator speed-down">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+          <span id="globalDownSpeed">18.4 MB/s</span>
+        </span>
+        <span class="speed-indicator speed-up">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+          <span id="globalUpSpeed">6.6 MB/s</span>
+        </span>
+    <!-- Mobile Floating Add Button (docs/PLAN.md Section 5.3) -->
+    <button id="mobileFloatingAdd" class="mobile-floating-add" title="Add Torrent">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+    </button>
+
+    <!-- Mobile Bottom Navigation (docs/PLAN.md Section 5.3) -->
+    <nav class="mobile-bottom-nav">
+      <button class="mobile-nav-btn active" data-filter="all">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+        <span>Transfers</span>
+      </button>
+      <button class="mobile-nav-btn" data-filter="downloading">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        <span>Active</span>
+      </button>
+      <button class="mobile-nav-btn" id="mobileBtnNetguard">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+        <span>Security</span>
+      </button>
+      <button class="mobile-nav-btn" id="mobileBtnSettings">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        <span>Settings</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Modal: Add Torrent Sheet (INV-04 Confirmation Requirement) -->
+  <div id="addTorrentModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Add New Torrent</h2>
+        <button class="icon-btn-sm closeModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- File Drop Zone inside modal -->
+        <div id="modalDropZone" class="modal-drop-zone">
+          <input type="file" id="torrentFileInput" accept=".torrent" style="display: none;">
+          <div class="drop-zone-content" id="dropZoneContent">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="17 8 12 3 7 8"></polyline>
+              <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            <div class="drop-zone-text">
+              <span class="drop-primary-text">Drag & drop a <strong class="color-accent">.torrent</strong> file here, or <button type="button" class="link-btn" id="btnBrowseFile">browse files</button></span>
+              <span class="drop-sub-text">Hard limits: max 16 MiB per .torrent (Section 17.1)</span>
+            </div>
+          </div>
+          <div id="selectedFileInfo" class="selected-file-info hidden">
+            <span class="file-icon">📄</span>
+            <div class="file-details">
+              <span class="file-name mono" id="droppedFileName">example.torrent</span>
+              <span class="file-size" id="droppedFileSize">34.2 KB</span>
+            </div>
+            <button type="button" class="icon-btn-sm" id="btnClearDroppedFile" title="Remove file">✕</button>
+          </div>
+        </div>
+
+        <div class="divider-with-text"><span>OR ENTER MAGNET LINK</span></div>
+
+        <div class="form-group">
+          <label for="magnetInput">Magnet URI / Info Hash</label>
+          <input type="text" id="magnetInput" placeholder="magnet:?xt=urn:btih:..." autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label for="torrentDestination">Destination Directory (SafePath Protected)</label>
+          <div class="path-picker-row">
+            <input type="text" id="torrentDestination" value="C:\Users\Abeesh\Downloads\Cairn" readonly>
+            <button class="btn btn-secondary" id="btnBrowseFolder">Browse...</button>
+          </div>
+        </div>
+
+        <div class="file-inspection-card">
+          <div class="file-card-header">
+            <span>Files in Torrent (Simulated metadata inspection)</span>
+            <span class="badge">SafePath verified</span>
+          </div>
+          <div class="file-list-preview" id="modalFileListPreview">
+            <!-- Items rendered via SafeText -->
+          </div>
+        </div>
+
+        <div class="options-row">
+          <label class="checkbox-label">
+            <input type="checkbox" id="checkStartPaused"> Start Paused
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="checkSequential"> Sequential Download
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost closeModal">Cancel</button>
+        <button class="btn btn-primary" id="btnConfirmAdd">Confirm & Start (INV-04)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Remove Torrent Confirmation (Keep Local Data vs Delete Files) -->
+  <div id="deleteTorrentModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Remove Torrent</h2>
+        <button class="icon-btn-sm closeModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-intro">
+          Choose how you want to remove <strong id="deleteTorrentTitle" class="color-accent">ubuntu-24.04-desktop-amd64.iso</strong>:
+        </p>
+
+        <div class="delete-options-list">
+          <label class="delete-option-card active" id="optKeepData">
+            <input type="radio" name="deleteAction" value="keep" checked>
+            <div class="delete-option-text">
+              <span class="delete-option-title">Disconnect Swarm & Keep Local Files</span>
+              <span class="delete-option-desc">Immediately breaks all peer, tracker, and DHT connections. Your downloaded content remains safe and accessible on your computer at:</span>
+              <span class="delete-option-path mono" id="deleteTorrentStoragePath">C:\Users\Abeesh\Downloads\Cairn\ubuntu-24.04</span>
+            </div>
+          </label>
+
+          <label class="delete-option-card danger-card" id="optDeleteData">
+            <input type="radio" name="deleteAction" value="delete">
+            <div class="delete-option-text">
+              <span class="delete-option-title color-danger">Disconnect & Permanently Delete Local Files</span>
+              <span class="delete-option-desc">Breaks all network connections and permanently deletes the downloaded files from your storage drive.</span>
+            </div>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost closeModal">Cancel</button>
+        <button class="btn btn-primary" id="btnConfirmDelete">Confirm Removal</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Network Guard Diagnostics & Leak Test Simulator -->
+  <div id="netguardModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Network Guard Security Center</h2>
+        <button class="icon-btn-sm closeModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-intro">
+          Network Guard binds listen and outgoing sockets to your VPN adapter and executes a hard fail-closed block if the tunnel drops (Section 18).
+        </p>
+
+        <div class="form-group">
+          <label>Selected Network Interface</label>
+          <select id="selectInterface" class="select-input">
+            <option value="wg0" selected>WireGuard Tunnel (wg0) - 10.8.0.2</option>
+            <option value="tun0">OpenVPN Tunnel (tun0) - 10.2.0.4</option>
+            <option value="eth0">Ethernet Controller (Realtek 1 Gbps) - 192.168.1.105 [UNPROTECTED]</option>
+          </select>
+        </div>
+
+        <div class="simulation-actions">
+          <button class="btn btn-secondary" id="btnSimulateVpnDrop">⚡ Simulate Sudden VPN Drop</button>
+          <button class="btn btn-secondary" id="btnRunLeakTest">🔍 Run IP & DNS Leak Test</button>
+        </div>
+
+        <div class="diagnostics-card" id="leakTestResults">
+          <div class="diag-item">
+            <span>External Visible IP:</span>
+            <span class="mono color-safe" id="diagVisibleIp">185.220.101.5 (Mullvad VPN)</span>
+          </div>
+          <div class="diag-item">
+            <span>ISP Physical IP:</span>
+            <span class="mono" id="diagIspIp">Hidden / Zero Leaked Packets</span>
+          </div>
+          <div class="diag-item">
+            <span>DNS Resolution Path:</span>
+            <span class="color-safe" id="diagDnsPath">Encrypted VPN Resolver</span>
+          </div>
+          <div class="diag-item">
+            <span>Interface Kill-Switch Status:</span>
+            <span class="badge badge-success" id="diagKillSwitchStatus">ARMED & ACTIVE</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary closeModal">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="experience.js"></script>
+</body>
+</html>

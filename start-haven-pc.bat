@@ -20,22 +20,10 @@ if exist "desktop\node_modules\electron" (
     goto :eof
 )
 
-where node >nul 2>nul
-if %ERRORLEVEL% EQU 0 (
-    echo Starting Haven preview server via Node.js...
-    start "" http://127.0.0.1:3000
-    node web\server.js
-    goto :eof
-)
-
-where python >nul 2>nul
-if %ERRORLEVEL% EQU 0 (
-    echo Starting Haven preview via Python...
-    start "" http://127.0.0.1:3000
-    cd web
-    python -m http.server 3000
-    goto :eof
-)
-
-echo [Error] Neither Node.js nor Python was found on your system.
+echo [Notice] Pre-packaged binary Haven.exe not found.
+echo To build the native desktop application:
+echo   cd desktop
+echo   npm install
+echo   npm run package
+echo.
 pause

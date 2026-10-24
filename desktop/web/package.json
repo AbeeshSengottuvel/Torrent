@@ -1,0 +1,18 @@
+{
+  "name": "haven-client",
+  "version": "1.0.0",
+  "description": "Secure, ad-free BitTorrent client for PC and Mobile",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "bittorrent",
+    "torrent-client",
+    "privacy",
+    "network-guard",
+    "pwa"
+  ],
+  "author": "Cairn Contributors",
+  "license": "MPL-2.0"
+}

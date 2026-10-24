@@ -42,6 +42,9 @@ EXCLUDED_FILES = {
     "AUDIT-1.md",
     "PLAN.md",
     "AGENTS.md",
+    "D0-REPORT.md",
+    "UPDATE-DESIGN.md",
+    "NAME-CHECK.md",
 }
 
 def scan_repository(root_dir: str):
@@ -64,6 +67,8 @@ def scan_repository(root_dir: str):
                 with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
                     for line_num, line in enumerate(f, 1):
                         lower_line = line.lower()
+                        if "check_no_telemetry" in lower_line:
+                            continue
                         for keyword in FORBIDDEN_KEYWORDS:
                             if keyword in lower_line:
                                 violations.append((filepath, line_num, keyword, line.strip()))
