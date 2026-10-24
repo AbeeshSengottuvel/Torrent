@@ -165,8 +165,63 @@ function createWindow() {
   });
 }
 
+// ==========================================================================
+// ZERO-TRUST IPC SECURITY & VALIDATION LAYER (SR-03 DEFENSE-IN-DEPTH)
+// ==========================================================================
+function verifyIpcSender(event, channelName) {
+  if (!event || !event.senderFrame) {
+    console.warn(`[Security Alert SR-03] Blocked IPC invocation on ${channelName}: Missing senderFrame.`);
+    return false;
+  }
+  
+  const frameUrl = event.senderFrame.url || '';
+  if (!frameUrl.startsWith('haven://')) {
+    console.warn(`[Security Alert SR-03] Blocked IPC invocation on ${channelName} from unauthorized origin: ${frameUrl}`);
+    return false;
+  }
+
+  if (mainWindow && !mainWindow.isDestroyed() && event.sender !== mainWindow.webContents) {
+    console.warn(`[Security Alert SR-03] Blocked IPC invocation on ${channelName}: webContents mismatch.`);
+    return false;
+  }
+
+  return true;
+}
+
+function sanitizeIpcPayload(payload) {
+  if (payload === null || typeof payload !== 'object') {
+    return payload;
+  }
+  if (Array.isArray(payload)) {
+    return payload.map(sanitizeIpcPayload);
+  }
+  const clean = Object.create(null);
+  for (const key of Object.keys(payload)) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+      continue;
+    }
+    clean[key] = sanitizeIpcPayload(payload[key]);
+  }
+  return clean;
+}
+
+function registerSecureHandler(channel, handler) {
+  ipcMain.handle(channel, async (event, ...args) => {
+    if (!verifyIpcSender(event, channel)) {
+      throw new Error(`[Security Guard SR-03] Access Denied on channel: ${channel}`);
+    }
+    try {
+      const sanitizedArgs = args.map(sanitizeIpcPayload);
+      return await handler(event, ...sanitizedArgs);
+    } catch (err) {
+      console.error(`[IPC Error on ${channel}]`, err);
+      return { success: false, error: err.message || 'Internal IPC error' };
+    }
+  });
+}
+
 // Native Dialog Handlers
-ipcMain.handle('dialog:selectFolder', async () => {
+registerSecureHandler('dialog:selectFolder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Choose Download Directory (SafePath Protected)',
     properties: ['openDirectory', 'createDirectory'],
@@ -177,7 +232,7 @@ ipcMain.handle('dialog:selectFolder', async () => {
   return result.filePaths[0];
 });
 
-ipcMain.handle('dialog:selectTorrentFile', async () => {
+registerSecureHandler('dialog:selectTorrentFile', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Select .torrent File',
     filters: [{ name: 'BitTorrent Files', extensions: ['torrent'] }],
@@ -189,13 +244,13 @@ ipcMain.handle('dialog:selectTorrentFile', async () => {
   return result.filePaths[0];
 });
 
-ipcMain.handle('app:openExternal', async (_event, url) => {
-  if (url && (url.startsWith('https://') || url.startsWith('http://'))) {
+registerSecureHandler('app:openExternal', async (_event, url) => {
+  if (url && typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
     shell.openExternal(url);
   }
 });
 
-ipcMain.handle('app:openPath', async (_event, folderPath) => {
+registerSecureHandler('app:openPath', async (_event, folderPath) => {
   if (folderPath && typeof folderPath === 'string') {
     const normalized = path.normalize(folderPath);
     if (!fs.existsSync(normalized)) {
@@ -211,7 +266,7 @@ ipcMain.handle('app:openPath', async (_event, folderPath) => {
   return false;
 });
 
-ipcMain.handle('app:showItemInFolder', async (_event, targetPath) => {
+registerSecureHandler('app:showItemInFolder', async (_event, targetPath) => {
   if (targetPath && typeof targetPath === 'string') {
     const normalized = path.normalize(targetPath);
     if (fs.existsSync(normalized)) {
@@ -307,7 +362,7 @@ function allocateDiskFile(filePath, sizeBytes, isVideo = true) {
   }
 }
 
-ipcMain.handle('app:deletePayloadFile', async (_event, payload) => {
+registerSecureHandler('app:deletePayloadFile', async (_event, payload) => {
   if (!payload || typeof payload !== 'object') return false;
   const { targetDir, fileName } = payload;
   if (!targetDir || !fileName) return false;
@@ -379,7 +434,7 @@ const PUBLIC_TRACKERS = [
   'wss://tracker.btorrent.xyz'
 ];
 
-ipcMain.handle('torrent:start', async (_event, payload) => {
+registerSecureHandler('torrent:start', async (_event, payload) => {
   if (!payload || !payload.id) return { success: false, error: 'Invalid payload' };
   const { id, source, targetDir, name, fileBuffer } = payload;
   const normalizedDir = path.normalize(targetDir || path.join(app.getPath('downloads'), 'Haven'));
@@ -473,8 +528,8 @@ ipcMain.handle('torrent:start', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('torrent:pause', async (_event, id) => {
-  if (activeTorrents.has(id)) {
+registerSecureHandler('torrent:pause', async (_event, id) => {
+  if (typeof id === 'string' && activeTorrents.has(id)) {
     const t = activeTorrents.get(id);
     if (!t.paused) t.pause();
     return true;
@@ -482,8 +537,8 @@ ipcMain.handle('torrent:pause', async (_event, id) => {
   return false;
 });
 
-ipcMain.handle('torrent:resume', async (_event, id) => {
-  if (activeTorrents.has(id)) {
+registerSecureHandler('torrent:resume', async (_event, id) => {
+  if (typeof id === 'string' && activeTorrents.has(id)) {
     const t = activeTorrents.get(id);
     if (t.paused) t.resume();
     return true;
@@ -491,8 +546,8 @@ ipcMain.handle('torrent:resume', async (_event, id) => {
   return false;
 });
 
-ipcMain.handle('torrent:stop', async (_event, id) => {
-  if (activeTorrents.has(id)) {
+registerSecureHandler('torrent:stop', async (_event, id) => {
+  if (typeof id === 'string' && activeTorrents.has(id)) {
     const t = activeTorrents.get(id);
     t.destroy();
     activeTorrents.delete(id);
@@ -501,7 +556,7 @@ ipcMain.handle('torrent:stop', async (_event, id) => {
   return false;
 });
 
-ipcMain.handle('torrent:delete', async (_event, payload) => {
+registerSecureHandler('torrent:delete', async (_event, payload) => {
   if (!payload || !payload.id) return false;
   const { id, deleteFiles, targetDir, name } = payload;
   if (activeTorrents.has(id)) {
@@ -530,50 +585,72 @@ ipcMain.handle('torrent:delete', async (_event, payload) => {
   return true;
 });
 
-// Broadcast real-time engine status batch to UI every 1000ms
-setInterval(() => {
-  if (!mainWindow || mainWindow.isDestroyed() || activeTorrents.size === 0) return;
+// Throttled 500ms Swarm Heartbeat (adaptive power-save when minimized)
+let statsTimer = null;
+let lastActiveCount = 0;
 
-  const batch = [];
-  for (const [id, t] of activeTorrents.entries()) {
-    batch.push({
-      id,
-      name: t.name,
-      infoHash: t.infoHash,
-      downloaded: t.downloaded || 0,
-      total: t.length || 0,
-      progress: t.progress || 0,
-      downloadSpeed: t.downloadSpeed || 0,
-      uploadSpeed: t.uploadSpeed || 0,
-      numPeers: t.numPeers || 0,
-      timeRemaining: t.timeRemaining || 0,
-      paused: t.paused || false,
-      done: t.done || false,
-      files: t.files ? t.files.map(f => ({
-        name: f.name,
-        path: f.path,
-        sizeBytes: f.length,
-        downloaded: f.downloaded || 0,
-        progress: f.progress || 0
-      })) : [],
-      peersList: t.wires ? t.wires.slice(0, 10).map(w => {
-        const wireSpeed = typeof w.downloadSpeed === 'function' ? w.downloadSpeed() : (w.downloadSpeed || 0);
-        return {
-          ip: `${w.remoteAddress || 'peer'}:${w.remotePort || 0}`,
-          client: w.type || 'BitTorrent',
-          speed: `${(wireSpeed / (1024 * 1024)).toFixed(1)} MB/s`,
-          enc: 'TLS',
-          encClass: 'badge-enc-tls'
-        };
-      }) : []
-    });
+function broadcastSwarmHeartbeat() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  const activeCount = activeTorrents.size;
+  if (activeCount === 0 && lastActiveCount === 0) {
+    statsTimer = setTimeout(broadcastSwarmHeartbeat, 1000);
+    return;
   }
+  lastActiveCount = activeCount;
 
-  mainWindow.webContents.send('torrent:statusBatch', batch);
-}, 1000);
+  // Adaptive interval: 500ms standard, 2000ms when minimized to prevent main-thread strain
+  const nextInterval = mainWindow.isMinimized() ? 2000 : 500;
+
+  try {
+    const batch = [];
+    for (const [id, t] of activeTorrents.entries()) {
+      batch.push({
+        id,
+        name: t.name || 'swarm',
+        infoHash: t.infoHash || '',
+        downloaded: t.downloaded || 0,
+        total: t.length || 0,
+        progress: t.progress || 0,
+        downloadSpeed: t.downloadSpeed || 0,
+        uploadSpeed: t.uploadSpeed || 0,
+        numPeers: t.numPeers || 0,
+        timeRemaining: t.timeRemaining || 0,
+        paused: t.paused || false,
+        done: t.done || false,
+        files: t.files ? t.files.map(f => ({
+          name: f.name,
+          path: f.path,
+          sizeBytes: f.length,
+          downloaded: f.downloaded || 0,
+          progress: f.progress || 0
+        })) : [],
+        peersList: t.wires ? t.wires.slice(0, 8).map(w => {
+          const wireSpeed = typeof w.downloadSpeed === 'function' ? w.downloadSpeed() : (w.downloadSpeed || 0);
+          return {
+            ip: `${w.remoteAddress || 'peer'}:${w.remotePort || 0}`,
+            client: w.type || 'BitTorrent',
+            speed: `${(wireSpeed / (1024 * 1024)).toFixed(1)} MB/s`,
+            enc: 'TLS',
+            encClass: 'badge-enc-tls'
+          };
+        }) : []
+      });
+    }
+
+    mainWindow.webContents.send('torrent:statusBatch', batch);
+  } catch (err) {
+    console.error('[Heartbeat Error]', err);
+  } finally {
+    statsTimer = setTimeout(broadcastSwarmHeartbeat, nextInterval);
+  }
+}
+
+// Start heartbeat loop immediately
+statsTimer = setTimeout(broadcastSwarmHeartbeat, 500);
 
 // SafePath Download File Allocator & Writer (Real Disk Persistence)
-ipcMain.handle('app:writeDownloadFile', async (_event, payload) => {
+registerSecureHandler('app:writeDownloadFile', async (_event, payload) => {
   if (!payload || typeof payload !== 'object') return { success: false, error: 'Invalid payload' };
   const { targetDir, fileName, sizeBytes, files, isCompleted } = payload;
   if (!targetDir || typeof targetDir !== 'string') return { success: false, error: 'Invalid target directory' };
@@ -633,8 +710,7 @@ ipcMain.handle('app:writeDownloadFile', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('app:checkForUpdates', async () => {
-  // In Task D0/D1: Updates follow the offline signed manifest design (docs/UPDATE-DESIGN.md)
+registerSecureHandler('app:checkForUpdates', async () => {
   return {
     hasUpdate: false,
     status: 'up_to_date',
@@ -643,12 +719,13 @@ ipcMain.handle('app:checkForUpdates', async () => {
 });
 
 // Window Control Handlers (SR-03 safe)
-ipcMain.handle('window:minimize', () => {
-  if (mainWindow) mainWindow.minimize();
+registerSecureHandler('window:minimize', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
+  return true;
 });
 
-ipcMain.handle('window:maximize', () => {
-  if (!mainWindow) return false;
+registerSecureHandler('window:maximize', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
   if (mainWindow.isMaximized()) {
     mainWindow.unmaximize();
     return false;
@@ -658,12 +735,13 @@ ipcMain.handle('window:maximize', () => {
   }
 });
 
-ipcMain.handle('window:close', () => {
-  if (mainWindow) mainWindow.close();
+registerSecureHandler('window:close', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+  return true;
 });
 
-ipcMain.handle('window:isMaximized', () => {
-  return mainWindow ? mainWindow.isMaximized() : false;
+registerSecureHandler('window:isMaximized', () => {
+  return mainWindow && !mainWindow.isDestroyed() ? mainWindow.isMaximized() : false;
 });
 
 function decodeBencodeTorrent(buf) {
@@ -758,8 +836,8 @@ function decodeBencodeTorrent(buf) {
   }
 }
 
-// SafePath .torrent file reader (check-then-allocate, max 10MB)
-ipcMain.handle('file:readTorrent', async (_event, filePath) => {
+// SafePath .torrent file reader (check-then-allocate, max 16MB)
+registerSecureHandler('file:readTorrent', async (_event, filePath) => {
   if (!filePath || typeof filePath !== 'string') return null;
   const normalized = path.normalize(filePath);
   if (!fs.existsSync(normalized)) return null;
