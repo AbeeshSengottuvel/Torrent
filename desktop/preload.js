@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('havenNative', {
   readTorrentFile: (filePath) => ipcRenderer.invoke('file:readTorrent', filePath),
   checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
+  openPath: (folderPath) => ipcRenderer.invoke('app:openPath', folderPath),
   
   // Window Control Handlers
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),

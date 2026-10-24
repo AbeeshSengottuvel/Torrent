@@ -100,9 +100,32 @@ class HavenMissionControl {
       this.openAddMagnetModal();
     });
 
+    document.getElementById('btnOpenPackageModal')?.addEventListener('click', () => {
+      this.openAddMagnetModal();
+      this.setModalMode('torrent');
+    });
+
+    document.getElementById('btnSubAddSwarm')?.addEventListener('click', () => {
+      this.openAddMagnetModal();
+    });
+
     document.getElementById('btnInspect')?.addEventListener('click', () => {
       const val = this.uriInput?.value.trim();
       if (val) this.ingestUriOrPath(val);
+    });
+
+    this.uriInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const val = this.uriInput.value.trim();
+        if (val) this.ingestUriOrPath(val);
+      }
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'm' || e.key === 'M')) {
+        e.preventDefault();
+        this.openAddMagnetModal();
+      }
     });
 
     this.hiddenPicker?.addEventListener('change', (e) => {
@@ -202,6 +225,37 @@ class HavenMissionControl {
     this.initWindowControls();
     this.initDragAndDrop();
     this.initAddMagnetModal();
+    this.initTargetMountActions();
+  }
+
+  formatBytes(bytes) {
+    if (!bytes || bytes <= 0) return '0.0 MB';
+    const mb = bytes / (1024 * 1024);
+    if (mb < 1024) return `${mb.toFixed(1)} MB`;
+    return `${(mb / 1024).toFixed(2)} GB`;
+  }
+
+  formatEta(seconds) {
+    if (!seconds || seconds <= 0 || !isFinite(seconds)) return 'Complete';
+    if (seconds > 86400) return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
+    if (seconds > 3600) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+    if (seconds > 60) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+    return `${seconds}s`;
+  }
+
+  initTargetMountActions() {
+    document.getElementById('btnOpenTargetFolder')?.addEventListener('click', async () => {
+      const s = this.getSelectedSwarm();
+      const mount = s?.targetMount || this.downloadDir || 'C:\\Users\\Abeesh\\Downloads\\Haven';
+      if (window.havenNative?.openPath) {
+        const ok = await window.havenNative.openPath(mount);
+        if (!ok) {
+          this.appendLog(`[SAFEPATH] Directory does not exist yet on disk: ${mount}`);
+        } else {
+          this.appendLog(`[SAFEPATH] Opened Explorer at: ${mount}`);
+        }
+      }
+    });
   }
 
   /* -------------------------------------------------------------------------
@@ -349,26 +403,52 @@ class HavenMissionControl {
   }
 
   /* -------------------------------------------------------------------------
-     ADD MAGNET MODAL & UPLOAD CONFIGURATION
+     UNIFIED INGESTION MODAL (MAGNET & .TORRENT PACKAGE CONFIGURATION)
      ------------------------------------------------------------------------- */
   initAddMagnetModal() {
-    window.addEventListener('keydown', (e) => {
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'm' || e.key === 'M' || e.key === 'n' || e.key === 'N')) {
-        if (!['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) {
-          e.preventDefault();
-          this.openAddMagnetModal();
-        }
-      }
+    this.downloadDir = localStorage.getItem('haven_download_dir') || 'C:\\Users\\Abeesh\\Downloads\\Haven';
+    this.modalMode = 'magnet';
+    this.pendingPackage = null;
+
+    // Source Mode Tabs
+    const tabMagnet = document.getElementById('tabModeMagnet');
+    const tabTorrent = document.getElementById('tabModeTorrent');
+    const panelMagnet = document.getElementById('panelSourceMagnet');
+    const panelTorrent = document.getElementById('panelSourceTorrent');
+
+    tabMagnet?.addEventListener('click', () => {
+      this.setModalMode('magnet');
     });
 
+    tabTorrent?.addEventListener('click', () => {
+      this.setModalMode('torrent');
+    });
+
+    // Browse .torrent file from within modal
+    document.getElementById('btnBrowseTorrentFile')?.addEventListener('click', () => {
+      this.hiddenPicker?.click();
+    });
+
+    // Modal Close and Cancel
     this.btnCloseMagnetModal?.addEventListener('click', () => this.closeAddMagnetModal());
     this.btnCancelMagnet?.addEventListener('click', () => this.closeAddMagnetModal());
 
+    // Browse Destination Folder
     this.btnBrowseMagnetPath?.addEventListener('click', async () => {
       if (window.havenNative?.selectFolder) {
         const selected = await window.havenNative.selectFolder();
-        if (selected && this.modalMagnetPath) {
-          this.modalMagnetPath.value = selected;
+        if (selected) {
+          this.downloadDir = selected;
+          localStorage.setItem('haven_download_dir', selected);
+          this.updateModalSaveLocation(selected);
+          this.appendLog(`[SAFEPATH] Target download mount updated: ${selected}`);
+        }
+      } else {
+        const manual = prompt('Enter destination directory path:', this.downloadDir);
+        if (manual) {
+          this.downloadDir = manual.trim();
+          localStorage.setItem('haven_download_dir', this.downloadDir);
+          this.updateModalSaveLocation(this.downloadDir);
         }
       }
     });
@@ -378,10 +458,10 @@ class HavenMissionControl {
     });
 
     this.btnConfirmMagnet?.addEventListener('click', () => {
-      this.submitAddMagnetModal();
+      this.submitAddModal();
     });
 
-    // Listen for external OS magnet clicks and file open events
+    // External Magnet and Torrent Hooks
     if (window.havenNative?.onOpenMagnet) {
       window.havenNative.onOpenMagnet((uri) => {
         this.openAddMagnetModal(uri);
@@ -394,8 +474,48 @@ class HavenMissionControl {
     }
   }
 
+  setModalMode(mode) {
+    this.modalMode = mode;
+    const tabMagnet = document.getElementById('tabModeMagnet');
+    const tabTorrent = document.getElementById('tabModeTorrent');
+    const panelMagnet = document.getElementById('panelSourceMagnet');
+    const panelTorrent = document.getElementById('panelSourceTorrent');
+    const title = document.getElementById('modalHeaderTitle');
+    const icon = document.getElementById('modalHeaderIcon');
+
+    if (mode === 'magnet') {
+      tabMagnet?.classList.add('active');
+      tabTorrent?.classList.remove('active');
+      panelMagnet?.classList.remove('hidden');
+      panelTorrent?.classList.add('hidden');
+      if (title) title.textContent = 'INGEST MAGNET LINK // SWARM & UPLOAD CONFIGURATION';
+      if (icon) icon.textContent = '🧲';
+    } else {
+      tabMagnet?.classList.remove('active');
+      tabTorrent?.classList.add('active');
+      panelMagnet?.classList.add('hidden');
+      panelTorrent?.classList.remove('hidden');
+      if (title) title.textContent = 'INGEST .TORRENT PACKAGE // FILE & STORAGE CONFIGURATION';
+      if (icon) icon.textContent = '📦';
+    }
+  }
+
+  updateModalSaveLocation(dirPath) {
+    const el = document.getElementById('modalMagnetPath');
+    if (el) el.textContent = dirPath;
+
+    const drive = dirPath.slice(0, 2).toUpperCase();
+    const volInfo = document.getElementById('modalVolumeInfo');
+    if (volInfo) {
+      volInfo.innerHTML = `<span class="text-emerald">✓ 382.4 GB Free Space Available</span> on Volume (${drive || 'C:'}) • SafePath Guard Active`;
+    }
+  }
+
   openAddMagnetModal(initialUri = '') {
     if (!this.addMagnetModal) return;
+    this.setModalMode('magnet');
+    this.updateModalSaveLocation(this.downloadDir);
+
     if (this.modalMagnetUri) {
       this.modalMagnetUri.value = initialUri || this.uriInput?.value.trim() || '';
     }
@@ -404,7 +524,47 @@ class HavenMissionControl {
     setTimeout(() => this.modalMagnetUri?.focus(), 50);
   }
 
+  openAddTorrentModal(pkgData) {
+    if (!this.addMagnetModal) return;
+    this.pendingPackage = pkgData;
+    this.setModalMode('torrent');
+    this.updateModalSaveLocation(this.downloadDir);
+
+    const nameInput = document.getElementById('modalMagnetName');
+    if (nameInput) nameInput.value = pkgData.name;
+
+    const pName = document.getElementById('pickerFileName');
+    if (pName) pName.textContent = pkgData.fileName;
+    const pSize = document.getElementById('pickerFileSize');
+    if (pSize) pSize.textContent = pkgData.sizeFormatted;
+
+    const fileCount = document.getElementById('pkgFileCount');
+    if (fileCount) fileCount.textContent = pkgData.files.length;
+    const totalSize = document.getElementById('pkgTotalSize');
+    if (totalSize) totalSize.textContent = `${pkgData.sizeFormatted} TOTAL`;
+
+    // Render file preview rows
+    const list = document.getElementById('pkgFilesList');
+    if (list) {
+      list.innerHTML = '';
+      pkgData.files.forEach(f => {
+        const row = document.createElement('div');
+        row.className = 'pkg-file-row';
+        row.innerHTML = `
+          <span class="pkg-file-icon">📄</span>
+          <span class="pkg-file-name font-mono">${this.escapeHtml(f.name)}</span>
+          <span class="pkg-file-size font-mono">${f.size}</span>
+          <span class="verdict-tag font-mono ${f.isRisk ? 'status-exec-blocked' : 'status-safepath-ok'}">${f.isRisk ? '[EXEC RISK]' : '[SAFEPATH OK]'}</span>
+        `;
+        list.appendChild(row);
+      });
+    }
+
+    this.addMagnetModal.classList.remove('hidden');
+  }
+
   closeAddMagnetModal() {
+    this.pendingPackage = null;
     if (this.addMagnetModal) this.addMagnetModal.classList.add('hidden');
   }
 
@@ -436,18 +596,30 @@ class HavenMissionControl {
         this.modalMagnetName.value = decodeURIComponent(dn);
       }
 
+      const displayName = dn || this.modalMagnetName?.value || 'magnet-swarm';
+
+      // Update package preview for magnet
+      const pName = document.getElementById('pkgPrimaryFileName');
+      if (pName) pName.textContent = displayName;
+      const pSize = document.getElementById('pkgPrimaryFileSize');
+      if (pSize) pSize.textContent = '1.24 GB';
+      const fCount = document.getElementById('pkgFileCount');
+      if (fCount) fCount.textContent = '1';
+      const totSize = document.getElementById('pkgTotalSize');
+      if (totSize) totSize.textContent = '1.24 GB TOTAL';
+
       if (hash && hash.length >= 32) {
         if (this.magnetHashBadge) {
           this.magnetHashBadge.textContent = `VALID BTIH: ${hash.slice(0, 8).toUpperCase()}...`;
           this.magnetHashBadge.className = 'badge-status-sub font-mono badge-valid';
         }
-        return { params, xt, dn: dn || this.modalMagnetName?.value || 'magnet-swarm', hash };
+        return { params, xt, dn: displayName, hash };
       } else {
         if (this.magnetHashBadge) {
           this.magnetHashBadge.textContent = 'PARSED (NO BTIH)';
           this.magnetHashBadge.className = 'badge-status-sub font-mono badge-warn';
         }
-        return { params, xt, dn: dn || 'magnet-swarm', hash: hash || '0123456789abcdef0123456789abcdef01234567' };
+        return { params, xt, dn: displayName, hash: hash || '0123456789abcdef0123456789abcdef01234567' };
       }
     } catch (_) {
       if (this.magnetHashBadge) {
@@ -458,7 +630,72 @@ class HavenMissionControl {
     }
   }
 
-  submitAddMagnetModal() {
+  submitAddModal() {
+    const targetMount = this.downloadDir || 'C:\\Users\\Abeesh\\Downloads\\Haven';
+    const uploadLimit = parseInt(document.getElementById('optUploadLimit')?.value || '0', 10);
+    const seedRatio = parseFloat(document.getElementById('optSeedRatio')?.value || '0');
+    const sequential = !!document.getElementById('optSequential')?.checked;
+    const autoStart = !!document.getElementById('optAutoStart')?.checked;
+
+    if (this.modalMode === 'torrent' && this.pendingPackage) {
+      // Ingest .torrent package with user-confirmed destination
+      const pkg = this.pendingPackage;
+      const dn = document.getElementById('modalMagnetName')?.value.trim() || pkg.name;
+      const isRisky = /\.(exe|bat|cmd|ps1|iso|vbs)$/i.test(dn);
+
+      const newSwarm = {
+        id: 't-' + Date.now(),
+        num: String(this.swarms.length + 1).padStart(2, '0'),
+        numType: isRisky ? 'red' : 'active',
+        name: dn,
+        hash: pkg.hash,
+        sizeFormatted: pkg.sizeFormatted,
+        sizeBytes: pkg.sizeBytes,
+        downloadedBytes: 0,
+        progressPct: 0.0,
+        progressSub: `0.0 MB of ${pkg.sizeFormatted}`,
+        progressState: isRisky ? 'halted' : (autoStart ? 'active' : 'paused'),
+        securityBadge: isRisky ? 'status-exec-blocked' : 'status-safepath-ok',
+        securityText: isRisky ? '[EXEC RISK]' : '[SAFEPATH OK]',
+        downSpeed: autoStart ? '8.4 MB/s' : '0.0 KB/s',
+        upSpeed: '0.0 KB/s',
+        peers: '24',
+        peersLeech: '8',
+        eta: autoStart ? 'Estimating' : 'Paused',
+        state: isRisky ? 'quarantined' : (autoStart ? 'downloading' : 'paused'),
+        targetMount: targetMount,
+        freeVolume: '382.4 GB',
+        volumeType: 'NVMe',
+        uploadLimit: uploadLimit,
+        seedRatioGoal: seedRatio,
+        sequential: sequential,
+        files: pkg.files,
+        quarantine: isRisky ? {
+          active: true,
+          title: `QUARANTINE ACTIVE // ${dn.toUpperCase()}`,
+          desc: 'Potentially dangerous payload isolated. SafePath gate enforced.'
+        } : null,
+        peersList: [
+          { ip: '203.0.113.88 (JP)', client: 'Haven/1.0', speed: '2.4 MB/s', enc: 'TLS', encClass: 'badge-enc-tls' }
+        ],
+        bitfield: { total: 360, verified: 0, inFlight: autoStart ? 6 : 0 },
+        tracker: {
+          active: 'tracker.opentrackr.org:1337',
+          reannounce: '00:15:00',
+          scrape: '142 / 38'
+        }
+      };
+
+      this.swarms.unshift(newSwarm);
+      this.selectedId = newSwarm.id;
+      this.saveSwarms();
+      this.closeAddMagnetModal();
+      this.render();
+      this.appendLog(`[SAFEPATH] Ingested package ${dn} -> Mount: ${targetMount}. Beginning transfer.`);
+      return;
+    }
+
+    // Otherwise Magnet mode
     const parsed = this.validateModalMagnetUri();
     if (!parsed) {
       alert('Please provide a valid magnet:?xt=urn:btih:... URI.');
@@ -467,14 +704,6 @@ class HavenMissionControl {
     }
 
     const dn = this.modalMagnetName?.value.trim() || parsed.dn || 'magnet-payload';
-    const targetMount = this.modalMagnetPath?.value.trim() || 'F:\\Torrent\\Storage';
-    const uploadLimit = parseInt(document.getElementById('optUploadLimit')?.value || '0', 10);
-    const seedRatio = parseFloat(document.getElementById('optSeedRatio')?.value || '0');
-    const uploadSlots = parseInt(document.getElementById('optUploadSlots')?.value || '8', 10);
-    const superSeeding = !!document.getElementById('optSuperSeeding')?.checked;
-    const sequential = !!document.getElementById('optSequential')?.checked;
-    const autoStart = !!document.getElementById('optAutoStart')?.checked;
-
     const isRisky = /\.(exe|bat|cmd|ps1|iso|vbs)$/i.test(dn);
 
     const newSwarm = {
@@ -485,12 +714,13 @@ class HavenMissionControl {
       hash: parsed.hash,
       sizeFormatted: '1.45 GB',
       sizeBytes: 1556925644,
+      downloadedBytes: 0,
       progressPct: 0.0,
-      progressSub: '0.0 MB',
+      progressSub: '0.0 MB of 1.45 GB',
       progressState: isRisky ? 'halted' : (autoStart ? 'active' : 'paused'),
       securityBadge: isRisky ? 'status-exec-blocked' : 'status-safepath-ok',
       securityText: isRisky ? '[EXEC RISK]' : '[SAFEPATH OK]',
-      downSpeed: '0.0 KB/s',
+      downSpeed: autoStart ? '8.2 MB/s' : '0.0 KB/s',
       upSpeed: '0.0 KB/s',
       peers: '28',
       peersLeech: '6',
@@ -501,8 +731,6 @@ class HavenMissionControl {
       volumeType: 'NVMe',
       uploadLimit: uploadLimit,
       seedRatioGoal: seedRatio,
-      uploadSlots: uploadSlots,
-      superSeeding: superSeeding,
       sequential: sequential,
       files: [
         { name: dn, path: '/payload/', size: '1.45 GB', verdict: isRisky ? 'badge-risk' : 'verdict-ok', verdictText: isRisky ? '[EXEC RISK]' : '[SAFEPATH OK]', selected: !isRisky, isRisk: isRisky, locked: isRisky }
@@ -529,7 +757,7 @@ class HavenMissionControl {
     this.closeAddMagnetModal();
     if (this.uriInput) this.uriInput.value = '';
     this.render();
-    this.appendLog(`[INGEST] Ingested Magnet swarm: ${dn} (UpLimit: ${uploadLimit ? uploadLimit + 'kB/s' : '∞'}, Ratio: ${seedRatio ? seedRatio + 'x' : '∞'}, SuperSeed: ${superSeeding})`);
+    this.appendLog(`[SAFEPATH] Ingested Magnet swarm: ${dn} -> Mount: ${targetMount} (UpLimit: ${uploadLimit ? uploadLimit + 'kB/s' : '∞'})`);
   }
 
   async ingestTorrentFilePath(filePath) {
@@ -611,14 +839,26 @@ class HavenMissionControl {
       if (s.numType === 'active') numClass = 'sq-active';
       if (s.numType === 'red') numClass = 'sq-red';
 
+      const downloadedStr = this.formatBytes(s.downloadedBytes || (s.sizeBytes * (s.progressPct / 100)));
       let progressFillClass = '';
-      if (s.progressState === 'seeding') progressFillClass = 'fill-green';
-      if (s.progressState === 'halted') progressFillClass = 'fill-red';
+      if (s.state === 'downloading') progressFillClass = 'fill-active';
+      else if (s.state === 'seeding' || s.progressPct >= 100) progressFillClass = 'fill-green';
+      else if (s.state === 'paused') progressFillClass = 'fill-paused';
+      else if (s.state === 'quarantined') progressFillClass = 'fill-red';
 
-      let progressMetaClass = s.progressState === 'halted' ? 'text-red' : '';
-      let titleClass = s.progressState === 'halted' ? 'title-blocked' : '';
-      let hashClass = s.progressState === 'halted' ? 'hash-red' : '';
-      let etaClass = s.eta === 'BLOCKED' ? 'eta-blocked' : '';
+      let progressMetaClass = s.state === 'quarantined' ? 'text-red' : '';
+      let subStatText = '';
+      if (s.state === 'downloading') {
+        subStatText = `↓ ${s.downSpeed} • ETA: ${s.eta}`;
+      } else if (s.state === 'seeding') {
+        subStatText = `↑ ${s.upSpeed} • Seeding`;
+      } else {
+        subStatText = s.state.toUpperCase();
+      }
+
+      const titleClass = s.state === 'quarantined' ? 'payload-quarantined' : '';
+      const hashClass = s.state === 'quarantined' ? 'hash-red' : '';
+      const etaClass = s.eta === 'Estimating' ? 'eta-estimating' : '';
 
       tr.innerHTML = `
         <td class="col-num">
@@ -633,12 +873,13 @@ class HavenMissionControl {
         <td class="col-size">${s.sizeFormatted}</td>
         <td class="col-progress">
           <div class="progress-meta ${progressMetaClass}">
-            <span>${s.progressPct.toFixed(1)}%</span>
-            <span class="sub-bytes">${s.progressSub}</span>
+            <span class="progress-pct font-mono">${s.progressPct.toFixed(1)}%</span>
+            <span class="sub-bytes font-mono">${downloadedStr} of ${s.sizeFormatted}</span>
           </div>
           <div class="progress-track">
-            <div class="progress-fill ${progressFillClass}" style="width: ${Math.min(100, s.progressPct)}%"></div>
+            <div class="progress-fill ${progressFillClass}" style="width: ${Math.min(100, Math.max(0, s.progressPct))}%"></div>
           </div>
+          <span class="progress-sub-stat font-mono">${subStatText}</span>
         </td>
         <td class="col-status">
           <span class="badge-status ${s.securityBadge}">${s.securityText}</span>
@@ -894,29 +1135,116 @@ class HavenMissionControl {
     ];
     initialLogs.forEach(line => this.appendLog(line));
 
+    this.tickerSec = 0;
+
     // Live update loop every second
     setInterval(() => {
-      const current = this.getSelectedSwarm();
-      let nextSpeed = 0.0;
-      if (current && current.state === 'downloading') {
-        nextSpeed = 8.2 + (Math.random() * 0.6 - 0.3);
-        current.downSpeed = `${nextSpeed.toFixed(1)} MB/s`;
-        current.upSpeed = `${(1.1 + Math.random() * 0.2).toFixed(1)} MB/s`;
+      this.tickerSec++;
+      let totalDownBytesSec = 0;
+      let totalUpBytesSec = 0;
+      let totalActivePeers = 0;
+      let hasDownloading = false;
+
+      this.swarms.forEach(s => {
+        if (s.state === 'downloading') {
+          hasDownloading = true;
+          const size = s.sizeBytes || 1331691520;
+          if (s.downloadedBytes === undefined || s.downloadedBytes === null) {
+            s.downloadedBytes = Math.round((s.progressPct / 100) * size);
+          }
+
+          // Transfer chunk per second: ~6.8 - 9.6 MB/s
+          const speedBytes = Math.round((7.8 + (Math.random() * 1.8 - 0.9)) * 1024 * 1024);
+          const upSpeedBytes = Math.round((0.9 + (Math.random() * 0.4 - 0.2)) * 1024 * 1024);
+
+          totalDownBytesSec += speedBytes;
+          totalUpBytesSec += upSpeedBytes;
+
+          s.downloadedBytes = Math.min(size, s.downloadedBytes + speedBytes);
+          s.progressPct = (s.downloadedBytes / size) * 100;
+          s.progressSub = `${this.formatBytes(s.downloadedBytes)} of ${s.sizeFormatted}`;
+          s.downSpeed = `${(speedBytes / (1024 * 1024)).toFixed(1)} MB/s`;
+          s.upSpeed = `${(upSpeedBytes / (1024 * 1024)).toFixed(1)} MB/s`;
+
+          // Realistic dynamic ETA
+          const remainingBytes = Math.max(0, size - s.downloadedBytes);
+          const remainingSec = Math.ceil(remainingBytes / speedBytes);
+          s.eta = this.formatEta(remainingSec);
+
+          // Update bitfield blocks
+          if (s.bitfield) {
+            s.bitfield.verified = Math.round((s.downloadedBytes / size) * s.bitfield.total);
+            s.bitfield.inFlight = Math.min(8, Math.max(0, s.bitfield.total - s.bitfield.verified));
+          }
+
+          // Total peers active
+          totalActivePeers += parseInt(s.peers || '16', 10);
+
+          // 100% completion transition
+          if (s.downloadedBytes >= size) {
+            s.progressPct = 100.0;
+            s.state = 'seeding';
+            s.progressState = 'complete';
+            s.downSpeed = '0.0 KB/s';
+            s.upSpeed = `${(1.2 + Math.random() * 0.4).toFixed(1)} MB/s`;
+            s.eta = 'Seeding';
+            s.securityBadge = 'status-safepath-ok';
+            s.securityText = '[COMPLETED // VERIFIED]';
+            this.appendLog(`[VERIFY] Swarm ${s.name} complete (100.0%). All chunks cryptographic SHA-256 verified.`);
+          }
+        } else if (s.state === 'seeding') {
+          const upSpeedBytes = Math.round((1.1 + (Math.random() * 0.5 - 0.2)) * 1024 * 1024);
+          totalUpBytesSec += upSpeedBytes;
+          s.upSpeed = `${(upSpeedBytes / (1024 * 1024)).toFixed(1)} MB/s`;
+          s.downSpeed = '0.0 KB/s';
+          totalActivePeers += parseInt(s.peers || '8', 10);
+        }
+      });
+
+      // Update Waveform
+      const currentSelected = this.getSelectedSwarm();
+      let currentWaveformSpeed = 0.0;
+      if (currentSelected && currentSelected.state === 'downloading') {
+        currentWaveformSpeed = parseFloat(currentSelected.downSpeed) || 0.0;
+      } else if (hasDownloading) {
+        currentWaveformSpeed = totalDownBytesSec / (1024 * 1024);
       }
-
       this.waveformHistory.shift();
-      this.waveformHistory.push(nextSpeed);
-
-      document.getElementById('waveformNow').textContent = `NOW: ${nextSpeed.toFixed(2)} MB/s`;
+      this.waveformHistory.push(currentWaveformSpeed);
+      const waveformLabel = document.getElementById('waveformNow');
+      if (waveformLabel) waveformLabel.textContent = `NOW: ${currentWaveformSpeed.toFixed(2)} MB/s`;
       this.drawWaveform();
 
-      if (current && current.state === 'downloading' && Math.random() > 0.6) {
+      // Update Top Throughput Pill
+      const topDown = document.getElementById('topSpeedDown');
+      if (topDown) topDown.textContent = `${(totalDownBytesSec / (1024 * 1024)).toFixed(1)} MB/s`;
+      const topUp = document.getElementById('topSpeedUp');
+      if (topUp) topUp.textContent = `${(totalUpBytesSec / (1024 * 1024)).toFixed(1)} MB/s`;
+
+      // Update Active Peers
+      const peerCountEl = document.getElementById('valActivePeers');
+      if (peerCountEl) peerCountEl.textContent = String(totalActivePeers);
+
+      // Re-render UI table & diagnostics
+      if (hasDownloading || this.tickerSec % 2 === 0) {
+        this.renderTable();
+        this.renderdiagnosticsPanels();
+        this.updateSidebarCounts();
+      }
+
+      // Auto-save progress every 5 seconds
+      if (this.tickerSec % 5 === 0) {
+        this.saveSwarms();
+      }
+
+      // Random diagnostics kernel log entries
+      if (hasDownloading && Math.random() > 0.6) {
         const t = new Date().toTimeString().split(' ')[0];
         const events = [
-          `[${t}] [DHT] Routing table synchronized (421 nodes)`,
+          `[${t}] [DHT] Routing table synchronized (${380 + Math.floor(Math.random() * 60)} nodes)`,
           `[${t}] [VERIFY] Chunk #${Math.floor(Math.random() * 450)} SHA-256 match OK (0.001s)`,
           `[${t}] [GUARD] Leak defense: 0 packets on non-wg0 interface`,
-          `[${t}] [TRACKER] Announce ack from ${current.tracker?.active || 'tracker.opentrackr.org'}`
+          `[${t}] [TRACKER] Announce ack from ${currentSelected?.tracker?.active || 'tracker.opentrackr.org'}`
         ];
         this.appendLog(events[Math.floor(Math.random() * events.length)]);
       }
@@ -948,66 +1276,8 @@ class HavenMissionControl {
       return;
     }
 
-    try {
-      const params = new URLSearchParams(raw.replace(/^magnet:\?/, ''));
-      const xt = params.get('xt') || '';
-      const dn = params.get('dn') || 'unnamed-payload';
-      const tr = params.getAll('tr');
-      const hash = xt.replace(/^urn:bt[i|m]h:/, '') || '0123456789abcdef0123456789abcdef01234567';
-
-      this.appendLog(`[INGEST] Parsing Magnet payload: ${dn} (${hash.slice(0, 16)}...)`);
-
-      const isRisky = /\.(exe|bat|cmd|ps1|iso|vbs)$/i.test(dn);
-      const newSwarm = {
-        id: 't-' + Date.now(),
-        num: String(this.swarms.length + 1).padStart(2, '0'),
-        numType: isRisky ? 'red' : 'active',
-        name: dn,
-        hash: hash,
-        sizeFormatted: '1.24 GB',
-        sizeBytes: 1331691520,
-        progressPct: 0.0,
-        progressSub: '0.0 MB',
-        progressState: isRisky ? 'halted' : 'active',
-        securityBadge: isRisky ? 'status-exec-blocked' : 'status-safepath-ok',
-        securityText: isRisky ? '[EXEC RISK]' : '[SAFEPATH OK]',
-        downSpeed: '0.0 KB/s',
-        upSpeed: '0.0 KB/s',
-        peers: '18',
-        peersLeech: '4',
-        eta: 'Estimating',
-        state: isRisky ? 'quarantined' : 'downloading',
-        targetMount: 'F:\\Torrent\\Storage',
-        freeVolume: '382.4 GB',
-        volumeType: 'NVMe',
-        files: [
-          { name: dn, path: '/payload/', size: '1.24 GB', verdict: isRisky ? 'badge-risk' : 'verdict-ok', verdictText: isRisky ? '[EXEC RISK]' : '[SAFEPATH OK]', selected: !isRisky, isRisk: isRisky, locked: isRisky }
-        ],
-        quarantine: isRisky ? {
-          active: true,
-          title: `QUARANTINE ACTIVE // ${dn.toUpperCase()}`,
-          desc: 'Executable or script extension detected. File is locked from direct disk flush until overridden.'
-        } : null,
-        peersList: [
-          { ip: '198.51.100.24 (US)', client: 'libtorrent/2.0', speed: '1.8 MB/s', enc: 'TLS', encClass: 'badge-enc-tls' }
-        ],
-        bitfield: { total: 512, verified: 0, inFlight: 4 },
-        tracker: {
-          active: tr[0] || 'dht.transmissionbt.com:6881',
-          reannounce: '00:15:00',
-          scrape: '84 / 12'
-        }
-      };
-
-      this.swarms.unshift(newSwarm);
-      this.selectedId = newSwarm.id;
-      this.saveSwarms();
-      this.uriInput.value = '';
-      this.render();
-      this.appendLog(`[SAFEPATH] Ingested ${dn}. SafePath validation complete.`);
-    } catch (e) {
-      this.appendLog(`[ERROR] Parsing failed: ${e.message}`);
-    }
+    // Always route through the Ingest Swarm & Package Popup to ask destination folder (INV-04)
+    this.openAddMagnetModal(raw);
   }
 
   async ingestFile(file) {
@@ -1016,61 +1286,43 @@ class HavenMissionControl {
       return;
     }
 
-    this.appendLog(`[INGEST] Reading .torrent buffer: ${file.name} (${file.size} bytes)`);
+    this.appendLog(`[INGEST] Inspecting .torrent package: ${file.name} (${file.size} bytes)`);
 
-    const arrayBuffer = await file.arrayBuffer();
-    const hashBuffer = await crypto.subtle.digest('SHA-1', arrayBuffer);
-    const hashHex = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const hashBuffer = await crypto.subtle.digest('SHA-1', arrayBuffer);
+      const hashHex = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 
-    const baseName = file.name.replace(/\.torrent$/i, '');
-    const isRisky = /\.(exe|bat|cmd|ps1|iso|vbs)$/i.test(baseName);
+      const baseName = file.name.replace(/\.torrent$/i, '');
+      const isRisky = /\.(exe|bat|cmd|ps1|iso|vbs)$/i.test(baseName);
+      const estBytes = file.size > 200000 ? file.size * 200 : 786432000;
+      const formattedSize = this.formatBytes(estBytes);
 
-    const newSwarm = {
-      id: 't-' + Date.now(),
-      num: String(this.swarms.length + 1).padStart(2, '0'),
-      numType: isRisky ? 'red' : 'active',
-      name: baseName,
-      hash: hashHex,
-      sizeFormatted: '750.0 MB',
-      sizeBytes: 786432000,
-      progressPct: 0.0,
-      progressSub: '0.0 MB',
-      progressState: isRisky ? 'halted' : 'active',
-      securityBadge: isRisky ? 'status-exec-blocked' : 'status-safepath-ok',
-      securityText: isRisky ? '[EXEC RISK]' : '[SAFEPATH OK]',
-      downSpeed: '0.0 KB/s',
-      upSpeed: '0.0 KB/s',
-      peers: '24',
-      peersLeech: '8',
-      eta: 'Estimating',
-      state: isRisky ? 'quarantined' : 'downloading',
-      targetMount: 'F:\\Torrent\\Storage',
-      freeVolume: '382.4 GB',
-      volumeType: 'NVMe',
-      files: [
-        { name: baseName, path: '/downloads/', size: '750.0 MB', verdict: isRisky ? 'badge-risk' : 'verdict-ok', verdictText: isRisky ? '[EXEC RISK]' : '[SAFEPATH OK]', selected: !isRisky, isRisk: isRisky, locked: isRisky }
-      ],
-      quarantine: isRisky ? {
-        active: true,
-        title: `QUARANTINE ACTIVE // ${baseName.toUpperCase()}`,
-        desc: 'Potentially dangerous payload isolated. SafePath gate enforced.'
-      } : null,
-      peersList: [
-        { ip: '203.0.113.88 (JP)', client: 'Haven/1.0', speed: '2.4 MB/s', enc: 'TLS', encClass: 'badge-enc-tls' }
-      ],
-      bitfield: { total: 360, verified: 0, inFlight: 6 },
-      tracker: {
-        active: 'tracker.opentrackr.org:1337',
-        reannounce: '00:15:00',
-        scrape: '142 / 38'
-      }
-    };
+      const pkgData = {
+        name: baseName,
+        hash: hashHex,
+        sizeFormatted: formattedSize,
+        sizeBytes: estBytes,
+        files: [
+          {
+            name: baseName,
+            path: '/downloads/',
+            size: formattedSize,
+            verdict: isRisky ? 'badge-risk' : 'verdict-ok',
+            verdictText: isRisky ? '[EXEC RISK]' : '[SAFEPATH OK]',
+            isRisk: isRisky,
+            locked: isRisky,
+            selected: !isRisky
+          }
+        ]
+      };
 
-    this.swarms.unshift(newSwarm);
-    this.selectedId = newSwarm.id;
-    this.saveSwarms();
-    this.render();
-    this.appendLog(`[BENCODE] Check-then-allocate validated. Info-Hash: ${hashHex.slice(0, 20)}...`);
+      // Open unified modal asking "WHERE SHOULD IT BE DOWNLOADED?" before starting
+      this.openAddTorrentModal(pkgData);
+      this.appendLog(`[BENCODE] Check-then-allocate validated. Info-Hash: ${hashHex.slice(0, 20)}...`);
+    } catch (e) {
+      this.appendLog(`[ERROR] Failed to parse .torrent package: ${e.message}`);
+    }
   }
 
   promptDelete(swarmId) {

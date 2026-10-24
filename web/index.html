@@ -35,7 +35,10 @@
         <span>[INSPECT]</span>
       </button>
       <button class="btn-ctrl btn-load" id="btnOpenAddModal" title="Add Magnet URI & Configure Upload (Ctrl + M)">
-        <span>+ [+ ADD MAGNET]</span>
+        <span>🧲 [+ ADD MAGNET]</span>
+      </button>
+      <button class="btn-ctrl btn-load-pkg" id="btnOpenPackageModal" title="Load .torrent Package File & Choose Destination">
+        <span>📦 [+ LOAD PACKAGE]</span>
       </button>
 
       <div class="badge-netguard-lock" id="chipNetguard">
@@ -68,6 +71,9 @@
   <!-- SUB-HEADER / QUICK ACTION & SWARM POLICY BAR -->
   <div class="sub-header">
     <div class="sub-left">
+      <button class="action-btn action-add-swarm" id="btnSubAddSwarm" title="Ingest New Swarm or Magnet Link">
+        <span>+</span> [ADD SWARM]
+      </button>
       <button class="action-btn" id="btnResumeAll">
         <span>▷</span> [RESUME ALL]
       </button>
@@ -222,7 +228,12 @@
           <div class="mount-row">
             <div class="mount-item">
               <span class="meta-label">TARGET MOUNT</span>
-              <span class="meta-val font-mono" id="mountTarget">F:\Torrent\Storage</span>
+              <div class="mount-val-group">
+                <span class="meta-val font-mono" id="mountTarget">C:\Users\Abeesh\Downloads\Haven</span>
+                <button class="btn-sm-action" id="btnOpenTargetFolder" title="Open Download Folder in File Explorer">
+                  <span>📂 [OPEN FOLDER]</span>
+                </button>
+              </div>
             </div>
             <div class="mount-item">
               <span class="meta-label">FREE VOLUME</span>
@@ -411,37 +422,96 @@
   <!-- Hidden native file picker for .torrent files -->
   <input type="file" id="hiddenTorrentPicker" accept=".torrent" style="display: none;">
 
-  <!-- Modal: Ingest Magnet Link & Upload Configuration -->
+  <!-- Modal: Ingest Swarm & Package Configuration (Magnet & .torrent) -->
   <div id="addMagnetModal" class="modal-backdrop hidden">
     <div class="modal-card modal-card-wide">
       <div class="modal-header">
         <div class="modal-title-group">
-          <span class="modal-icon text-cyan">🧲</span>
-          <h2>INGEST MAGNET LINK // SWARM & UPLOAD CONFIGURATION</h2>
+          <span class="modal-icon text-cyan" id="modalHeaderIcon">🧲</span>
+          <h2 id="modalHeaderTitle">INGEST PAYLOAD // SWARM & PACKAGE CONFIGURATION</h2>
         </div>
         <button class="icon-btn-sm" id="btnCloseMagnetModal">✕</button>
       </div>
       <div class="modal-body">
-        <!-- Magnet URI Input Group -->
-        <div class="form-group">
-          <div class="form-label-row">
-            <label for="modalMagnetUri">MAGNET URI PAYLOAD</label>
-            <span class="badge-status-sub font-mono" id="magnetHashBadge">AWAITING URI</span>
-          </div>
-          <textarea id="modalMagnetUri" class="form-textarea font-mono" rows="3" placeholder="Paste Magnet URI here (e.g. magnet:?xt=urn:btih:...)" spellcheck="false"></textarea>
+        
+        <!-- Source Switcher Tabs -->
+        <div class="modal-source-tabs">
+          <button class="source-tab active" id="tabModeMagnet">
+            <span>🧲</span> MAGNET LINK
+          </button>
+          <button class="source-tab" id="tabModeTorrent">
+            <span>📦</span> .TORRENT PACKAGE FILE
+          </button>
         </div>
 
-        <!-- Detected Metadata Row -->
-        <div class="meta-two-col">
+        <!-- Magnet Input Panel -->
+        <div id="panelSourceMagnet" class="source-panel">
           <div class="form-group">
-            <label for="modalMagnetName">PAYLOAD / SWARM DISPLAY NAME</label>
-            <input type="text" id="modalMagnetName" class="form-input font-mono" placeholder="Auto-detected from URI &dn parameter...">
+            <div class="form-label-row">
+              <label for="modalMagnetUri">MAGNET URI PAYLOAD</label>
+              <span class="badge-status-sub font-mono" id="magnetHashBadge">AWAITING URI</span>
+            </div>
+            <textarea id="modalMagnetUri" class="form-textarea font-mono" rows="2" placeholder="Paste Magnet URI here (e.g. magnet:?xt=urn:btih:...)" spellcheck="false"></textarea>
           </div>
+        </div>
+
+        <!-- Torrent Package File Panel -->
+        <div id="panelSourceTorrent" class="source-panel hidden">
           <div class="form-group">
-            <label for="modalMagnetPath">SAFEPATH STORAGE MOUNT</label>
-            <div class="input-action-group">
-              <input type="text" id="modalMagnetPath" class="form-input font-mono" value="F:\Torrent\Storage" readonly>
-              <button class="btn-ctrl btn-inspect" id="btnBrowseMagnetPath">[BROWSE]</button>
+            <label>PACKAGE FILE</label>
+            <div class="torrent-file-picker-box" id="dropZoneModal">
+              <div class="picker-file-info">
+                <span class="picker-icon">📦</span>
+                <div>
+                  <div class="picker-name font-mono" id="pickerFileName">No .torrent file selected</div>
+                  <div class="picker-size font-mono" id="pickerFileSize">Drag & drop a file here or click browse</div>
+                </div>
+              </div>
+              <button class="btn-ctrl btn-inspect" id="btnBrowseTorrentFile" type="button">
+                <span>[📂 BROWSE FILE]</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Swarm Display Name Row -->
+        <div class="form-group">
+          <label for="modalMagnetName">PAYLOAD / PACKAGE DISPLAY NAME</label>
+          <input type="text" id="modalMagnetName" class="form-input font-mono" placeholder="Auto-detected from URI or package metadata...">
+        </div>
+
+        <!-- PROMINENT DOWNLOAD DESTINATION CARD -->
+        <div class="save-location-card">
+          <div class="save-location-header">
+            <div class="save-label-group">
+              <span class="save-icon">📁</span>
+              <div>
+                <span class="save-title">WHERE SHOULD IT BE DOWNLOADED?</span>
+                <span class="save-sub font-mono">SafePath Confinement Protected Directory</span>
+              </div>
+            </div>
+            <button class="btn-ctrl btn-browse-folder" id="btnBrowseMagnetPath" type="button">
+              <span>📂 [CHOOSE FOLDER / BROWSE]</span>
+            </button>
+          </div>
+          <div class="save-path-display font-mono" id="modalMagnetPath">C:\Users\Abeesh\Downloads\Haven</div>
+          <div class="save-volume-info font-mono" id="modalVolumeInfo">
+            <span class="text-emerald">✓ 382.4 GB Free Space Available</span> on Volume (C:) • NVMe Direct I/O
+          </div>
+        </div>
+
+        <!-- Package Files Manifest Preview -->
+        <div class="package-files-preview" id="packageFilesPreview">
+          <div class="package-preview-header font-mono">
+            <span>PACKAGE CONTENTS (<span id="pkgFileCount">1</span> FILES)</span>
+            <span id="pkgTotalSize">1.24 GB TOTAL</span>
+          </div>
+          <div class="package-preview-list" id="pkgFilesList">
+            <div class="pkg-file-row">
+              <span class="pkg-file-icon">📄</span>
+              <span class="pkg-file-name font-mono" id="pkgPrimaryFileName">payload-data</span>
+              <span class="pkg-file-size font-mono" id="pkgPrimaryFileSize">1.24 GB</span>
+              <span class="verdict-tag font-mono status-safepath-ok">[SAFEPATH OK]</span>
             </div>
           </div>
         </div>
@@ -472,25 +542,6 @@
           </div>
 
           <div class="option-item">
-            <label for="optUploadSlots">MAX UPLOAD PEER SLOTS</label>
-            <select id="optUploadSlots" class="form-select font-mono">
-              <option value="4">4 Active Slots</option>
-              <option value="8" selected>8 Active Slots (Standard)</option>
-              <option value="16">16 Active Slots (High Throughput)</option>
-              <option value="32">32 Active Slots</option>
-            </select>
-          </div>
-
-          <div class="option-item">
-            <label for="optSuperSeeding">INITIAL SEEDING / SUPER-SEED</label>
-            <label class="toggle-switch">
-              <input type="checkbox" id="optSuperSeeding">
-              <span class="toggle-slider"></span>
-              <span class="toggle-label font-mono">Prioritize rare piece distribution</span>
-            </label>
-          </div>
-
-          <div class="option-item">
             <label for="optSequential">SEQUENTIAL DOWNLOAD ORDER</label>
             <label class="toggle-switch">
               <input type="checkbox" id="optSequential">
@@ -500,18 +551,20 @@
           </div>
 
           <div class="option-item">
-            <label for="optAutoStart">AUTO-START INGESTION</label>
+            <label for="optAutoStart">AUTO-START DOWNLOADING</label>
             <label class="toggle-switch">
               <input type="checkbox" id="optAutoStart" checked>
               <span class="toggle-slider"></span>
-              <span class="toggle-label font-mono">Immediately begin peer negotiation</span>
+              <span class="toggle-label font-mono">Begin peer negotiation immediately</span>
             </label>
           </div>
         </div>
       </div>
       <div class="modal-footer">
         <button class="btn-ctrl btn-inspect" id="btnCancelMagnet">Cancel</button>
-        <button class="btn-ctrl btn-load" id="btnConfirmMagnet">[VERIFY & INGEST SWARM]</button>
+        <button class="btn-ctrl btn-load btn-primary-start" id="btnConfirmMagnet">
+          <span>[⬇ START DOWNLOAD]</span>
+        </button>
       </div>
     </div>
   </div>

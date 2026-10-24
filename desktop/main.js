@@ -194,6 +194,17 @@ ipcMain.handle('app:openExternal', async (_event, url) => {
   }
 });
 
+ipcMain.handle('app:openPath', async (_event, folderPath) => {
+  if (folderPath && typeof folderPath === 'string') {
+    const normalized = path.normalize(folderPath);
+    if (fs.existsSync(normalized)) {
+      shell.openPath(normalized);
+      return true;
+    }
+  }
+  return false;
+});
+
 ipcMain.handle('app:checkForUpdates', async () => {
   // In Task D0/D1: Updates follow the offline signed manifest design (docs/UPDATE-DESIGN.md)
   return {
