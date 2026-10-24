@@ -36,9 +36,11 @@ class HavenMissionControl {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          // Strictly purge any legacy mock data while 100% preserving user's authentic transfers
+          // Strictly purge any legacy mock data and synthetic fallback hashes
           const clean = parsed.filter(p => 
-            p && p.name && 
+            p && p.name && p.hash &&
+            !p.hash.startsWith('0123456789abcdef') &&
+            p.hash.length >= 32 &&
             !p.name.includes('archlinux-2025') && 
             !p.name.includes('debian-12.8.0') && 
             !p.name.includes('unverified-tools') &&
@@ -81,6 +83,7 @@ class HavenMissionControl {
 
     window.havenNative.startTorrent({
       id: swarm.id,
+      hash: swarm.hash,
       source: source || null,
       targetDir: targetDir,
       name: swarm.name,
@@ -1035,11 +1038,11 @@ class HavenMissionControl {
       const pName = document.getElementById('pkgPrimaryFileName');
       if (pName) pName.textContent = displayName;
       const pSize = document.getElementById('pkgPrimaryFileSize');
-      if (pSize) pSize.textContent = '1.24 GB';
+      if (pSize) pSize.textContent = 'Resolving...';
       const fCount = document.getElementById('pkgFileCount');
       if (fCount) fCount.textContent = '1';
       const totSize = document.getElementById('pkgTotalSize');
-      if (totSize) totSize.textContent = '1.24 GB TOTAL';
+      if (totSize) totSize.textContent = 'Resolving metadata...';
 
       if (hash && hash.length >= 32) {
         if (this.magnetHashBadge) {
@@ -1049,10 +1052,10 @@ class HavenMissionControl {
         return { params, xt, dn: displayName, hash };
       } else {
         if (this.magnetHashBadge) {
-          this.magnetHashBadge.textContent = 'PARSED (NO BTIH)';
+          this.magnetHashBadge.textContent = 'INVALID (NO BTIH)';
           this.magnetHashBadge.className = 'badge-status-sub font-mono badge-warn';
         }
-        return { params, xt, dn: displayName, hash: hash || '0123456789abcdef0123456789abcdef01234567' };
+        return null;
       }
     } catch (_) {
       if (this.magnetHashBadge) {
@@ -1164,8 +1167,8 @@ class HavenMissionControl {
 
     // Otherwise Magnet mode
     const parsed = this.validateModalMagnetUri();
-    if (!parsed) {
-      alert('Please provide a valid magnet:?xt=urn:btih:... URI.');
+    if (!parsed || !parsed.hash) {
+      alert('[SafePath Error] Please provide a valid magnet:?xt=urn:btih:... URI containing an authentic 40-character SHA-1 (or 32-character base32) infoHash.');
       this.modalMagnetUri?.focus();
       return;
     }
@@ -1250,18 +1253,24 @@ class HavenMissionControl {
   }
 
   async ingestTorrentFilePath(filePath) {
-    if (!window.havenNative?.parseTorrentFile) return;
+    if (!window.havenNative?.parseTorrentFile) {
+      alert('[SafePath Error] Native desktop bridge is unavailable.');
+      return;
+    }
     try {
       const meta = await window.havenNative.parseTorrentFile(filePath);
       if (meta) {
         const fileObj = {
           name: meta.name,
-          size: meta.totalBytes
+          size: meta.totalBytes,
+          path: filePath
         };
         await this.ingestFile(fileObj, meta);
       }
     } catch (e) {
-      this.appendLog(`[ERROR] Failed to ingest .torrent from path: ${e.message}`);
+      const msg = e.message || String(e);
+      this.appendLog(`[ERROR] Failed to ingest .torrent from path: ${msg}`);
+      alert(`[SafePath Error] Failed to parse .torrent file from disk:\n${msg}\n\nIngestion halted.`);
     }
   }
 
@@ -1902,6 +1911,24 @@ class HavenMissionControl {
       });
     }
 
+    if (window.havenNative?.onDhtStatus) {
+      window.havenNative.onDhtStatus((status) => {
+        const el = document.getElementById('footDht');
+        if (el) {
+          el.textContent = status.ready ? `READY (${status.nodes} NODES)` : 'INITIALIZING...';
+        }
+      });
+    }
+
+    if (window.havenNative?.getDhtStatus) {
+      window.havenNative.getDhtStatus().then(status => {
+        if (status) {
+          const el = document.getElementById('footDht');
+          if (el) el.textContent = status.ready ? `READY (${status.nodes} NODES)` : 'INITIALIZING...';
+        }
+      }).catch(() => {});
+    }
+
     if (window.havenNative?.onTorrentStatusBatch) {
       window.havenNative.onTorrentStatusBatch((batch) => {
         if (!Array.isArray(batch)) return;
@@ -2128,7 +2155,9 @@ class HavenMissionControl {
       this.openAddTorrentModal(pkgData);
       this.appendLog(`[BENCODE] Decoded authentic metadata: ${pkgData.name} | InfoHash: ${pkgData.hash.slice(0, 16)}... | Size: ${pkgData.sizeFormatted}`);
     } catch (e) {
-      this.appendLog(`[ERROR] Failed to parse .torrent package: ${e.message}`);
+      const msg = e.message || String(e);
+      this.appendLog(`[ERROR] Failed to parse .torrent package: ${msg}`);
+      alert(`[SafePath Error] Failed to parse .torrent package:\n${msg}\n\nIngestion halted.`);
       console.error(e);
     }
   }

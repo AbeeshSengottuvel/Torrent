@@ -478,10 +478,13 @@ registerSecureHandler('app:deletePayloadFile', async (_event, payload) => {
 // ==========================================================================
 // REAL BITTORRENT ENGINE (LIVE PEERS, TRACKERS, & DISK I/O)
 // ==========================================================================
+// REAL BITTORRENT ENGINE (LIVE PEERS, TRACKERS, & DISK I/O)
+// ==========================================================================
 let WebTorrentClass = null;
 let parseTorrentFunc = null;
 let torrentClient = null;
 const activeTorrents = new Map(); // swarmId -> Torrent
+const torrentPayloadCache = new Map(); // infoHash -> { buffer, sourcePath, name, announce }
 
 // Bandwidth QoS / Traffic Governor state
 let currentThrottleConfig = {
@@ -508,6 +511,95 @@ async function getParseTorrent() {
   return parseTorrentFunc;
 }
 
+/**
+ * Strict RFC/BEP 0003 Bencode Info Dictionary extractor.
+ * Finds the exact byte range of the '4:infod...e' dictionary and extracts
+ * the raw byte slice so SHA-1 can be calculated over authentic bencoded bytes.
+ */
+function extractRawInfoSlice(buf) {
+  if (!Buffer.isBuffer(buf)) buf = Buffer.from(buf);
+  const target = Buffer.from('4:info');
+  const idx = buf.indexOf(target);
+  if (idx === -1) {
+    throw new Error('[SafePath Bencode] Invalid torrent payload: missing 4:info key.');
+  }
+  const start = idx + 6; // offset immediately after '4:info'
+  
+  let pos = start;
+  function parseNext() {
+    if (pos >= buf.length) throw new Error('[SafePath Bencode] Unexpected end of torrent buffer.');
+    const ch = buf[pos];
+    if (ch === 0x69) { // 'i' -> integer: i<num>e
+      pos++;
+      const end = buf.indexOf(0x65, pos); // 'e'
+      if (end === -1) throw new Error('[SafePath Bencode] Unterminated integer in info dictionary.');
+      pos = end + 1;
+    } else if (ch === 0x6c) { // 'l' -> list: l<items>e
+      pos++;
+      while (pos < buf.length && buf[pos] !== 0x65) {
+        parseNext();
+      }
+      if (pos >= buf.length) throw new Error('[SafePath Bencode] Unterminated list in info dictionary.');
+      pos++; // skip 'e'
+    } else if (ch === 0x64) { // 'd' -> dict: d<key><val>e
+      pos++;
+      while (pos < buf.length && buf[pos] !== 0x65) {
+        parseNext(); // key
+        parseNext(); // val
+      }
+      if (pos >= buf.length) throw new Error('[SafePath Bencode] Unterminated dictionary in info dictionary.');
+      pos++; // skip 'e'
+    } else if (ch >= 0x30 && ch <= 0x39) { // '0'-'9' -> string: <len>:<bytes>
+      const colon = buf.indexOf(0x3a, pos); // ':'
+      if (colon === -1) throw new Error('[SafePath Bencode] Unterminated string prefix in info dictionary.');
+      const lenStr = buf.toString('ascii', pos, colon);
+      const len = parseInt(lenStr, 10);
+      if (isNaN(len) || len < 0) throw new Error('[SafePath Bencode] Invalid string length in info dictionary.');
+      pos = colon + 1 + len;
+      if (pos > buf.length) throw new Error('[SafePath Bencode] String data overflows buffer length.');
+    } else {
+      throw new Error(`[SafePath Bencode] Invalid bencode token 0x${ch.toString(16)} at offset ${pos}.`);
+    }
+  }
+  
+  parseNext();
+  return buf.slice(start, pos);
+}
+
+function computeRawInfoHash(buf) {
+  const slice = extractRawInfoSlice(buf);
+  return crypto.createHash('sha1').update(slice).digest('hex').toLowerCase();
+}
+
+const PUBLIC_TRACKERS = [
+  'udp://tracker.opentrackr.org:1337/announce',
+  'udp://open.stealth.si:80/announce',
+  'udp://tracker.torrent.eu.org:451/announce',
+  'udp://exodus.desync.com:6969/announce',
+  'udp://tracker.openbittorrent.com:6969/announce',
+  'udp://tracker.moeking.me:6969/announce',
+  'udp://explodie.org:6969/announce',
+  'udp://p4p.arenabg.com:1337/announce',
+  'wss://tracker.openwebtorrent.com',
+  'wss://tracker.btorrent.xyz'
+];
+
+let dhtBroadcastInterval = null;
+function startDhtStatusBroadcaster() {
+  if (dhtBroadcastInterval) return;
+  dhtBroadcastInterval = setInterval(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && torrentClient && torrentClient.dht) {
+      const count = (typeof torrentClient.dht.nodes?.toArray === 'function')
+        ? torrentClient.dht.nodes.toArray().length
+        : 0;
+      mainWindow.webContents.send('kernel:dhtStatus', {
+        ready: !!torrentClient.dht.listening,
+        nodes: count
+      });
+    }
+  }, 2000);
+}
+
 async function getTorrentEngine() {
   if (!torrentClient) {
     if (!WebTorrentClass) {
@@ -518,7 +610,22 @@ async function getTorrentEngine() {
       maxConns: currentThrottleConfig.maxConns,
       dht: true,
       tracker: true,
+      lsd: true,
+      webSeeds: true,
     });
+
+    if (torrentClient.dht) {
+      torrentClient.dht.on('node', () => {
+        // DHT node added to routing table
+      });
+      torrentClient.dht.on('ready', () => {
+        const count = torrentClient.dht?.nodes?.toArray?.()?.length || 0;
+        broadcastKernelLog('DHT', `Kademlia DHT routing table initialized. Listening on UDP port. (Nodes: ${count})`);
+      });
+      torrentClient.dht.on('warning', (err) => {
+        broadcastKernelLog('DHT/WARN', `DHT warning: ${err.message}`, 'warn');
+      });
+    }
 
     if (typeof torrentClient.throttleDownload === 'function') {
       torrentClient.throttleDownload(currentThrottleConfig.downBytesSec);
@@ -531,26 +638,151 @@ async function getTorrentEngine() {
       console.error('[WebTorrent Engine Error]', err);
       broadcastKernelLog('ENGINE/ERR', `Engine error: ${err.message}`, 'error');
     });
+
+    startDhtStatusBroadcaster();
   }
   return torrentClient;
 }
 
-const PUBLIC_TRACKERS = [
-  'udp://tracker.opentrackr.org:1337/announce',
-  'udp://open.stealth.si:80/announce',
-  'udp://tracker.torrent.eu.org:451/announce',
-  'udp://tracker.bittor.pw:1337/announce',
-  'udp://public.popcorn-tracker.org:6969/announce',
-  'udp://tracker.dler.org:6969/announce',
-  'udp://exodus.desync.com:6969/announce',
-  'udp://open.demonii.com:1337/announce',
-  'wss://tracker.openwebtorrent.com',
-  'wss://tracker.btorrent.xyz'
-];
+registerSecureHandler('torrent:getDhtStatus', () => {
+  const count = (torrentClient && torrentClient.dht && typeof torrentClient.dht.nodes?.toArray === 'function')
+    ? torrentClient.dht.nodes.toArray().length
+    : 0;
+  return { ready: !!torrentClient?.dht?.listening, nodes: count };
+});
+
+async function handleParseTorrentFile(fileArg) {
+  if (!fileArg) throw new Error('[SafePath] No torrent file or buffer provided');
+
+  let buffer;
+  let sourcePath = null;
+
+  if (typeof fileArg === 'string') {
+    const trimmed = fileArg.trim();
+    if (trimmed.length < 1024 && fs.existsSync(trimmed)) {
+      sourcePath = path.normalize(trimmed);
+      const stat = await fs.promises.stat(sourcePath);
+      if (stat.size > 16 * 1024 * 1024) {
+        throw new Error('[SafePath / SR-04] .torrent file exceeds 16 MiB hard limit.');
+      }
+      buffer = await fs.promises.readFile(sourcePath);
+      broadcastKernelLog('FS/INGEST', `Reading .torrent package from disk: ${sourcePath} (${stat.size} bytes)`);
+    } else {
+      buffer = Buffer.from(trimmed, 'base64');
+      broadcastKernelLog('FS/INGEST', `Reading .torrent binary buffer (${buffer.length} bytes)`);
+    }
+  } else if (fileArg.buffer && typeof fileArg.buffer === 'string') {
+    buffer = Buffer.from(fileArg.buffer, 'base64');
+    sourcePath = fileArg.path || null;
+    broadcastKernelLog('FS/INGEST', `Reading .torrent buffer payload (${buffer.length} bytes)`);
+  } else if (Buffer.isBuffer(fileArg) || fileArg instanceof Uint8Array) {
+    buffer = Buffer.from(fileArg);
+    broadcastKernelLog('FS/INGEST', `Reading raw binary .torrent payload (${buffer.length} bytes)`);
+  } else {
+    throw new Error('[SafePath] Unsupported torrent input format.');
+  }
+
+  // 1. Strict BEP 0003 authentic SHA-1 computation over raw info dictionary slice
+  let authenticSha1 = null;
+  try {
+    authenticSha1 = computeRawInfoHash(buffer);
+  } catch (err) {
+    broadcastKernelLog('BENCODE/WARN', `Strict slice parser: ${err.message}`, 'warn');
+  }
+
+  // 2. Metadata parsing via parse-torrent
+  const parseTorrent = await getParseTorrent();
+  const parsed = await parseTorrent(buffer);
+
+  if (!parsed || (!parsed.infoHash && !authenticSha1)) {
+    broadcastKernelLog('BENCODE/ERR', 'Corrupt Bencode: could not compute infoHash.', 'error');
+    throw new Error('[BENCODE] Corrupt or invalid .torrent file. InfoHash missing.');
+  }
+
+  const infoHash = (authenticSha1 || parsed.infoHash).toLowerCase();
+  const name = parsed.name || (sourcePath ? path.basename(sourcePath, '.torrent') : 'unnamed-torrent');
+  const pieceLength = parsed.pieceLength || 0;
+  const totalLength = Number(parsed.length) || 0;
+  const pieces = parsed.pieces ? parsed.pieces.length : (pieceLength > 0 ? Math.ceil(totalLength / pieceLength) : 0);
+  const trackers = Array.isArray(parsed.announce) ? parsed.announce : [];
+
+  // Cache authentic buffer and path in backend Map for instant swarm launch
+  torrentPayloadCache.set(infoHash, {
+    buffer,
+    sourcePath,
+    name,
+    announce: trackers
+  });
+
+  let firstRiskName = null;
+  const files = (parsed.files || []).map(f => {
+    const fPath = f.path || f.name || 'payload';
+    const ext = path.extname(fPath).toLowerCase();
+    const isRisk = BLOCKED_EXECUTABLE_EXTS.has(ext);
+    if (isRisk && !firstRiskName) {
+      firstRiskName = f.name || path.basename(fPath);
+    }
+    return {
+      name: f.name || path.basename(fPath),
+      path: fPath,
+      sizeBytes: Number(f.length) || 0,
+      isRisk,
+      selected: !isRisk,
+      locked: isRisk
+    };
+  });
+
+  if (files.length === 0 && totalLength > 0) {
+    const ext = path.extname(name).toLowerCase();
+    const isRisk = BLOCKED_EXECUTABLE_EXTS.has(ext);
+    if (isRisk && !firstRiskName) firstRiskName = name;
+    files.push({
+      name,
+      path: name,
+      sizeBytes: totalLength,
+      isRisk,
+      selected: !isRisk,
+      locked: isRisk
+    });
+  }
+
+  const execRiskDetected = files.some(f => f.isRisk);
+  const quarantineReason = firstRiskName ? `Executable payload detected: ${firstRiskName}` : null;
+
+  broadcastKernelLog('BENCODE', `Decoded: "${name}" | InfoHash: ${infoHash} | Total: ${(totalLength / (1024*1024)).toFixed(1)} MB | Pieces: ${pieces} (${pieceLength} B) | Trackers: ${trackers.length}`);
+
+  return {
+    success: true,
+    infoHash,
+    name,
+    totalBytes: totalLength,
+    pieceLength,
+    pieces,
+    files,
+    execRiskDetected,
+    quarantineReason,
+    announce: trackers,
+    buffer: buffer.toString('base64'),
+    sourcePath: sourcePath || null
+  };
+}
+
+// Register secure IPC handlers for torrent parsing (including aliases)
+registerSecureHandler('torrent:parseTorrentFile', async (_event, fileArg) => {
+  return await handleParseTorrentFile(fileArg);
+});
+
+registerSecureHandler('torrent:parseTorrent', async (_event, fileArg) => {
+  return await handleParseTorrentFile(fileArg);
+});
+
+registerSecureHandler('file:readTorrent', async (_event, filePath) => {
+  return await handleParseTorrentFile(filePath);
+});
 
 registerSecureHandler('torrent:start', async (_event, payload) => {
   if (!payload || !payload.id) return { success: false, error: 'Invalid payload' };
-  const { id, source, targetDir, name, fileBuffer, deselectedFiles } = payload;
+  const { id, hash, source, targetDir, name, fileBuffer, deselectedFiles } = payload;
   
   // SafePath Confinement: Validate and canonicalize destination folder
   const safeTargetDir = await validateSafePathTarget(targetDir || path.join(app.getPath('downloads'), 'Haven'));
@@ -580,10 +812,33 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
       return { success: true, active: true };
     }
 
-    let input = source;
-    if (fileBuffer) {
+    let input = null;
+    let extraAnnounce = [];
+
+    // 1. Check if authentic raw .torrent Buffer or path is cached by infoHash
+    const cleanHash = (hash || '').toLowerCase();
+    if (cleanHash && torrentPayloadCache.has(cleanHash)) {
+      const cached = torrentPayloadCache.get(cleanHash);
+      if (cached.buffer) {
+        input = cached.buffer;
+        if (Array.isArray(cached.announce)) extraAnnounce = cached.announce;
+        broadcastKernelLog('ENGINE', `Ingesting authentic raw .torrent buffer (${input.length} B) for hash: ${cleanHash.slice(0, 16)}...`);
+      } else if (cached.sourcePath && fs.existsSync(cached.sourcePath)) {
+        input = cached.sourcePath;
+        if (Array.isArray(cached.announce)) extraAnnounce = cached.announce;
+        broadcastKernelLog('ENGINE', `Ingesting authentic .torrent file path: ${input}`);
+      }
+    }
+
+    // 2. Fall back to fileBuffer if provided
+    if (!input && fileBuffer) {
       input = Buffer.from(fileBuffer, 'base64');
-      broadcastKernelLog('ENGINE', `Passing authentic .torrent binary payload (${input.length} B) to WebTorrent client`);
+      broadcastKernelLog('ENGINE', `Ingesting authentic .torrent binary payload (${input.length} B) from renderer`);
+    }
+
+    // 3. Fall back to source (Magnet URI or file path or hash)
+    if (!input && source) {
+      input = source;
     }
 
     if (typeof input === 'string') {
@@ -602,6 +857,8 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
 
     if (!input) return { success: false, error: 'No source provided' };
 
+    const mergedTrackers = Array.from(new Set([...PUBLIC_TRACKERS, ...extraAnnounce]));
+
     const existingTorrent = client.get(input);
     if (existingTorrent) {
       activeTorrents.set(id, existingTorrent);
@@ -615,7 +872,7 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
 
     const torrent = client.add(input, {
       path: safeTargetDir,
-      announce: PUBLIC_TRACKERS
+      announce: mergedTrackers
     });
 
     activeTorrents.set(id, torrent);
@@ -1035,114 +1292,6 @@ registerSecureHandler('window:isMaximized', () => {
   return mainWindow && !mainWindow.isDestroyed() ? mainWindow.isMaximized() : false;
 });
 
-async function handleParseTorrentFile(fileArg) {
-  if (!fileArg) throw new Error('[SafePath] No torrent file or buffer provided');
-
-  let buffer;
-  let sourcePath = null;
-
-  if (typeof fileArg === 'string') {
-    const trimmed = fileArg.trim();
-    if (trimmed.length < 1024 && fs.existsSync(trimmed)) {
-      sourcePath = path.normalize(trimmed);
-      const stat = await fs.promises.stat(sourcePath);
-      if (stat.size > 16 * 1024 * 1024) {
-        throw new Error('[SafePath / SR-04] .torrent file exceeds 16 MiB hard limit.');
-      }
-      buffer = await fs.promises.readFile(sourcePath);
-      broadcastKernelLog('FS/INGEST', `Reading .torrent package from disk: ${sourcePath} (${stat.size} bytes)`);
-    } else {
-      buffer = Buffer.from(trimmed, 'base64');
-      broadcastKernelLog('FS/INGEST', `Reading .torrent binary buffer (${buffer.length} bytes)`);
-    }
-  } else if (fileArg.buffer && typeof fileArg.buffer === 'string') {
-    buffer = Buffer.from(fileArg.buffer, 'base64');
-    sourcePath = fileArg.path || null;
-    broadcastKernelLog('FS/INGEST', `Reading .torrent buffer payload (${buffer.length} bytes)`);
-  } else if (Buffer.isBuffer(fileArg) || fileArg instanceof Uint8Array) {
-    buffer = Buffer.from(fileArg);
-    broadcastKernelLog('FS/INGEST', `Reading raw binary .torrent payload (${buffer.length} bytes)`);
-  } else {
-    throw new Error('[SafePath] Unsupported torrent input format.');
-  }
-
-  const parseTorrent = await getParseTorrent();
-  const parsed = await parseTorrent(buffer);
-
-  if (!parsed || !parsed.infoHash) {
-    broadcastKernelLog('BENCODE/ERR', 'Corrupt Bencode: could not compute infoHash.', 'error');
-    throw new Error('[BENCODE] Corrupt or invalid .torrent file. InfoHash missing.');
-  }
-
-  const infoHash = parsed.infoHash.toLowerCase();
-  const name = parsed.name || (sourcePath ? path.basename(sourcePath, '.torrent') : 'unnamed-torrent');
-  const pieceLength = parsed.pieceLength || 0;
-  const totalLength = Number(parsed.length) || 0;
-  const pieces = parsed.pieces ? parsed.pieces.length : (pieceLength > 0 ? Math.ceil(totalLength / pieceLength) : 0);
-  const trackers = Array.isArray(parsed.announce) ? parsed.announce : [];
-
-  let firstRiskName = null;
-  const files = (parsed.files || []).map(f => {
-    const fPath = f.path || f.name || 'payload';
-    const ext = path.extname(fPath).toLowerCase();
-    const isRisk = BLOCKED_EXECUTABLE_EXTS.has(ext);
-    if (isRisk && !firstRiskName) {
-      firstRiskName = f.name || path.basename(fPath);
-    }
-    return {
-      name: f.name || path.basename(fPath),
-      path: fPath,
-      sizeBytes: Number(f.length) || 0,
-      isRisk,
-      selected: !isRisk,
-      locked: isRisk
-    };
-  });
-
-  if (files.length === 0 && totalLength > 0) {
-    const ext = path.extname(name).toLowerCase();
-    const isRisk = BLOCKED_EXECUTABLE_EXTS.has(ext);
-    if (isRisk && !firstRiskName) firstRiskName = name;
-    files.push({
-      name,
-      path: name,
-      sizeBytes: totalLength,
-      isRisk,
-      selected: !isRisk,
-      locked: isRisk
-    });
-  }
-
-  const execRiskDetected = files.some(f => f.isRisk);
-  const quarantineReason = firstRiskName ? `Executable payload detected: ${firstRiskName}` : null;
-
-  broadcastKernelLog('BENCODE', `Decoded: "${name}" | InfoHash: ${infoHash} | Total: ${(totalLength / (1024*1024)).toFixed(1)} MB | Pieces: ${pieces} (${pieceLength} B) | Trackers: ${trackers.length}`);
-
-  return {
-    success: true,
-    infoHash,
-    name,
-    totalBytes: totalLength,
-    pieceLength,
-    pieces,
-    files,
-    execRiskDetected,
-    quarantineReason,
-    announce: trackers,
-    buffer: buffer.toString('base64'),
-    sourcePath: sourcePath || null
-  };
-}
-
-// SafePath authentic Bencode torrent parser
-registerSecureHandler('torrent:parseTorrentFile', async (_event, fileArg) => {
-  return await handleParseTorrentFile(fileArg);
-});
-
-registerSecureHandler('file:readTorrent', async (_event, filePath) => {
-  return await handleParseTorrentFile(filePath);
-});
-
 function appendBootLog(msg) {
   try {
     fs.appendFileSync(path.join(__dirname, '..', 'haven_boot.log'), `[${new Date().toISOString()}] ${msg}\n`);
@@ -1209,6 +1358,14 @@ if (!gotTheLock) {
     appendBootLog('Custom protocol registered');
     createWindow();
     appendBootLog('createWindow called');
+
+    // Boot WebTorrent engine and DHT discovery in background
+    getTorrentEngine().then(() => {
+      startDhtStatusBroadcaster();
+      broadcastKernelLog('ENGINE', 'WebTorrent Swarm Engine booted. DHT & public trackers active.');
+    }).catch(err => {
+      console.error('[Engine Startup Warning]', err);
+    });
 
     // Check launch arguments for magnet or torrent
     const { magnet, torrent } = extractMagnetOrTorrent(process.argv);
