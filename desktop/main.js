@@ -203,10 +203,66 @@ ipcMain.handle('app:checkForUpdates', async () => {
   };
 });
 
+// Window Control Handlers (SR-03 safe)
+ipcMain.handle('window:minimize', () => {
+  if (mainWindow) mainWindow.minimize();
+});
+
+ipcMain.handle('window:maximize', () => {
+  if (!mainWindow) return false;
+  if (mainWindow.isMaximized()) {
+    mainWindow.unmaximize();
+    return false;
+  } else {
+    mainWindow.maximize();
+    return true;
+  }
+});
+
+ipcMain.handle('window:close', () => {
+  if (mainWindow) mainWindow.close();
+});
+
+ipcMain.handle('window:isMaximized', () => {
+  return mainWindow ? mainWindow.isMaximized() : false;
+});
+
+// SafePath .torrent file reader (check-then-allocate, max 10MB)
+ipcMain.handle('file:readTorrent', async (_event, filePath) => {
+  if (!filePath || typeof filePath !== 'string') return null;
+  const normalized = path.normalize(filePath);
+  if (!fs.existsSync(normalized)) return null;
+  const ext = path.extname(normalized).toLowerCase();
+  if (ext !== '.torrent') return null;
+  try {
+    const stat = fs.statSync(normalized);
+    if (stat.size > 16 * 1024 * 1024) {
+      throw new Error('.torrent file exceeds 16MB limit');
+    }
+    const buffer = fs.readFileSync(normalized);
+    return {
+      name: path.basename(normalized),
+      path: normalized,
+      size: stat.size,
+      buffer: buffer.toString('base64'),
+    };
+  } catch (err) {
+    console.error('[Torrent File Read Error]', err);
+    return null;
+  }
+});
+
 function appendBootLog(msg) {
   try {
     fs.appendFileSync(path.join(__dirname, '..', 'haven_boot.log'), `[${new Date().toISOString()}] ${msg}\n`);
   } catch (_) {}
+}
+
+function extractMagnetOrTorrent(args) {
+  if (!Array.isArray(args)) return { magnet: null, torrent: null };
+  const magnet = args.find(a => typeof a === 'string' && a.startsWith('magnet:?'));
+  const torrent = args.find(a => typeof a === 'string' && a.toLowerCase().endsWith('.torrent'));
+  return { magnet: magnet || null, torrent: torrent || null };
 }
 
 const gotTheLock = app.requestSingleInstanceLock();
@@ -215,12 +271,19 @@ if (!gotTheLock) {
   appendBootLog('Secondary instance detected; quitting immediately.');
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, commandLine) => {
     appendBootLog('Second instance triggered; restoring and focusing main window.');
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();
       mainWindow.focus();
+
+      const { magnet, torrent } = extractMagnetOrTorrent(commandLine);
+      if (magnet) {
+        mainWindow.webContents.send('open-magnet', magnet);
+      } else if (torrent) {
+        mainWindow.webContents.send('open-torrent-file', torrent);
+      }
     }
   });
 
@@ -229,10 +292,33 @@ if (!gotTheLock) {
     if (process.platform === 'win32') {
       app.setAppUserModelId('org.haven.desktop');
     }
+
+    // Register magnet URI protocol client
+    try {
+      if (process.defaultApp) {
+        if (process.argv.length >= 2) {
+          app.setAsDefaultProtocolClient('magnet', process.execPath, [path.resolve(process.argv[1])]);
+        }
+      } else {
+        app.setAsDefaultProtocolClient('magnet');
+      }
+    } catch (e) {
+      console.warn('[Protocol Registration Warning]', e);
+    }
+
     setupCustomProtocol();
     appendBootLog('Custom protocol registered');
     createWindow();
     appendBootLog('createWindow called');
+
+    // Check launch arguments for magnet or torrent
+    const { magnet, torrent } = extractMagnetOrTorrent(process.argv);
+    if (magnet || torrent) {
+      mainWindow.webContents.once('did-finish-load', () => {
+        if (magnet) mainWindow.webContents.send('open-magnet', magnet);
+        if (torrent) mainWindow.webContents.send('open-torrent-file', torrent);
+      });
+    }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
@@ -241,6 +327,18 @@ if (!gotTheLock) {
         mainWindow.show();
       }
     });
+  });
+
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    if (url && url.startsWith('magnet:?')) {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+        mainWindow.webContents.send('open-magnet', url);
+      }
+    }
   });
 }
 

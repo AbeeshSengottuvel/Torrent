@@ -34,8 +34,8 @@
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
         <span>[INSPECT]</span>
       </button>
-      <button class="btn-ctrl btn-load" id="btnLoad">
-        <span>+ [+ LOAD]</span>
+      <button class="btn-ctrl btn-load" id="btnOpenAddModal" title="Add Magnet URI & Configure Upload (Ctrl + M)">
+        <span>+ [+ ADD MAGNET]</span>
       </button>
 
       <div class="badge-netguard-lock" id="chipNetguard">
@@ -383,11 +383,138 @@
       <span class="footer-metric">TOTAL DOWN: <strong class="font-mono" id="footTotalDown">84.2 GB</strong></span>
       <span class="footer-sep">|</span>
       <span class="footer-metric">TOTAL UP: <strong class="font-mono" id="footTotalUp">203.1 GB</strong></span>
+      <span class="footer-sep">|</span>
+      <div class="zoom-controls">
+        <span class="zoom-label font-mono">ZOOM:</span>
+        <button class="btn-zoom" id="btnZoomOut" title="Zoom Out (Ctrl + -)">−</button>
+        <button class="btn-zoom-level font-mono" id="btnZoomReset" title="Reset Zoom (Ctrl + 0)">100%</button>
+        <button class="btn-zoom" id="btnZoomIn" title="Zoom In (Ctrl + +)">+</button>
+      </div>
     </div>
   </footer>
 
+  <!-- Drag and Drop Overlay for .torrent files -->
+  <div id="dragDropOverlay" class="drag-drop-overlay hidden">
+    <div class="drag-drop-card">
+      <div class="drag-icon">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+      </div>
+      <div class="drag-title font-mono">INGEST PAYLOAD // DROP .TORRENT FILE HERE</div>
+      <div class="drag-subtitle">SafePath Confinement Active • Automated Bencode Structural Inspection</div>
+    </div>
+  </div>
+
   <!-- Hidden native file picker for .torrent files -->
   <input type="file" id="hiddenTorrentPicker" accept=".torrent" style="display: none;">
+
+  <!-- Modal: Ingest Magnet Link & Upload Configuration -->
+  <div id="addMagnetModal" class="modal-backdrop hidden">
+    <div class="modal-card modal-card-wide">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <span class="modal-icon text-cyan">🧲</span>
+          <h2>INGEST MAGNET LINK // SWARM & UPLOAD CONFIGURATION</h2>
+        </div>
+        <button class="icon-btn-sm" id="btnCloseMagnetModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- Magnet URI Input Group -->
+        <div class="form-group">
+          <div class="form-label-row">
+            <label for="modalMagnetUri">MAGNET URI PAYLOAD</label>
+            <span class="badge-status-sub font-mono" id="magnetHashBadge">AWAITING URI</span>
+          </div>
+          <textarea id="modalMagnetUri" class="form-textarea font-mono" rows="3" placeholder="Paste Magnet URI here (e.g. magnet:?xt=urn:btih:...)" spellcheck="false"></textarea>
+        </div>
+
+        <!-- Detected Metadata Row -->
+        <div class="meta-two-col">
+          <div class="form-group">
+            <label for="modalMagnetName">PAYLOAD / SWARM DISPLAY NAME</label>
+            <input type="text" id="modalMagnetName" class="form-input font-mono" placeholder="Auto-detected from URI &dn parameter...">
+          </div>
+          <div class="form-group">
+            <label for="modalMagnetPath">SAFEPATH STORAGE MOUNT</label>
+            <div class="input-action-group">
+              <input type="text" id="modalMagnetPath" class="form-input font-mono" value="F:\Torrent\Storage" readonly>
+              <button class="btn-ctrl btn-inspect" id="btnBrowseMagnetPath">[BROWSE]</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Upload & Swarm Governance Settings -->
+        <div class="options-section-title">
+          <span>UPLOAD GOVERNANCE & SEEDING POLICY</span>
+          <span class="section-badge font-mono">ZERO-TRUST CONFINEMENT</span>
+        </div>
+
+        <div class="options-grid">
+          <div class="option-item">
+            <label for="optUploadLimit">UPLOAD RATE LIMIT</label>
+            <div class="input-unit-group">
+              <input type="number" id="optUploadLimit" class="form-input font-mono" min="0" step="50" value="0" placeholder="0">
+              <span class="unit-tag font-mono">kB/s (0 = ∞)</span>
+            </div>
+          </div>
+
+          <div class="option-item">
+            <label for="optSeedRatio">SEED RATIO TARGET</label>
+            <select id="optSeedRatio" class="form-select font-mono">
+              <option value="1.0">1.0x (Standard Fair Share)</option>
+              <option value="1.5">1.5x (Healthy Contribution)</option>
+              <option value="2.0">2.0x (Generous Seeder)</option>
+              <option value="0" selected>No Limit (Continuous Seeding)</option>
+            </select>
+          </div>
+
+          <div class="option-item">
+            <label for="optUploadSlots">MAX UPLOAD PEER SLOTS</label>
+            <select id="optUploadSlots" class="form-select font-mono">
+              <option value="4">4 Active Slots</option>
+              <option value="8" selected>8 Active Slots (Standard)</option>
+              <option value="16">16 Active Slots (High Throughput)</option>
+              <option value="32">32 Active Slots</option>
+            </select>
+          </div>
+
+          <div class="option-item">
+            <label for="optSuperSeeding">INITIAL SEEDING / SUPER-SEED</label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="optSuperSeeding">
+              <span class="toggle-slider"></span>
+              <span class="toggle-label font-mono">Prioritize rare piece distribution</span>
+            </label>
+          </div>
+
+          <div class="option-item">
+            <label for="optSequential">SEQUENTIAL DOWNLOAD ORDER</label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="optSequential">
+              <span class="toggle-slider"></span>
+              <span class="toggle-label font-mono">Sequential chunking (stream priority)</span>
+            </label>
+          </div>
+
+          <div class="option-item">
+            <label for="optAutoStart">AUTO-START INGESTION</label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="optAutoStart" checked>
+              <span class="toggle-slider"></span>
+              <span class="toggle-label font-mono">Immediately begin peer negotiation</span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ctrl btn-inspect" id="btnCancelMagnet">Cancel</button>
+        <button class="btn-ctrl btn-load" id="btnConfirmMagnet">[VERIFY & INGEST SWARM]</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Modal: Remove Torrent Confirmation -->
   <div id="deleteSwarmModal" class="modal-backdrop hidden">

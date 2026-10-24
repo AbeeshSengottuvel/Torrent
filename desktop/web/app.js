@@ -67,41 +67,52 @@ class HavenMissionControl {
     this.btnCloseDeleteModal = document.getElementById('btnCloseDeleteModal');
     this.deleteSwarmTitle = document.getElementById('deleteSwarmTitle');
     this.deleteSwarmPath = document.getElementById('deleteSwarmPath');
+
+    // Add Magnet Modal Elements
+    this.btnOpenAddModal = document.getElementById('btnOpenAddModal') || document.getElementById('btnLoad');
+    this.addMagnetModal = document.getElementById('addMagnetModal');
+    this.modalMagnetUri = document.getElementById('modalMagnetUri');
+    this.modalMagnetName = document.getElementById('modalMagnetName');
+    this.modalMagnetPath = document.getElementById('modalMagnetPath');
+    this.btnBrowseMagnetPath = document.getElementById('btnBrowseMagnetPath');
+    this.magnetHashBadge = document.getElementById('magnetHashBadge');
+    this.btnCloseMagnetModal = document.getElementById('btnCloseMagnetModal');
+    this.btnCancelMagnet = document.getElementById('btnCancelMagnet');
+    this.btnConfirmMagnet = document.getElementById('btnConfirmMagnet');
+
+    // Drag and Drop Overlay
+    this.dragDropOverlay = document.getElementById('dragDropOverlay');
+
+    // Zoom Controls
+    this.btnZoomIn = document.getElementById('btnZoomIn');
+    this.btnZoomOut = document.getElementById('btnZoomOut');
+    this.btnZoomReset = document.getElementById('btnZoomReset');
+
+    // Window Controls
+    this.winMin = document.getElementById('winMin');
+    this.winMax = document.getElementById('winMax');
+    this.winClose = document.getElementById('winClose');
   }
 
   attachEvents() {
     // Top Bar Actions
-    document.getElementById('btnLoad').addEventListener('click', () => {
-      const val = this.uriInput.value.trim();
-      if (val) {
-        this.ingestUriOrPath(val);
-      } else {
-        this.hiddenPicker.click();
-      }
+    this.btnOpenAddModal?.addEventListener('click', () => {
+      this.openAddMagnetModal();
     });
 
-    document.getElementById('btnInspect').addEventListener('click', () => {
-      const val = this.uriInput.value.trim();
+    document.getElementById('btnInspect')?.addEventListener('click', () => {
+      const val = this.uriInput?.value.trim();
       if (val) this.ingestUriOrPath(val);
     });
 
-    this.hiddenPicker.addEventListener('change', (e) => {
+    this.hiddenPicker?.addEventListener('change', (e) => {
       if (e.target.files && e.target.files[0]) {
         this.ingestFile(e.target.files[0]);
       }
     });
 
-    // Native Drag and Drop onto Window
-    window.addEventListener('dragover', (e) => e.preventDefault());
-    window.addEventListener('drop', (e) => {
-      e.preventDefault();
-      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-        this.ingestFile(e.dataTransfer.files[0]);
-      }
-    });
-
     // Quick Action Bar
-    document.getElementById('btnResumeAll').addEventListener('click', () => {
+    document.getElementById('btnResumeAll')?.addEventListener('click', () => {
       this.swarms.forEach(s => {
         if (s.state === 'paused') s.state = 'downloading';
       });
@@ -110,7 +121,7 @@ class HavenMissionControl {
       this.appendLog('[ACTION] Resumed all active swarms.');
     });
 
-    document.getElementById('btnPauseAll').addEventListener('click', () => {
+    document.getElementById('btnPauseAll')?.addEventListener('click', () => {
       this.swarms.forEach(s => {
         if (s.state === 'downloading') s.state = 'paused';
       });
@@ -119,7 +130,7 @@ class HavenMissionControl {
       this.appendLog('[ACTION] Paused all transfers. Sockets throttled.');
     });
 
-    document.getElementById('btnPurge').addEventListener('click', () => {
+    document.getElementById('btnPurge')?.addEventListener('click', () => {
       if (this.swarms.length === 0) return;
       if (confirm('Purge completed and inactive transfers from workspace list? (Disk files will not be deleted)')) {
         this.swarms = this.swarms.filter(s => s.state === 'downloading');
@@ -131,7 +142,7 @@ class HavenMissionControl {
     });
 
     // Start Download in Col 1
-    document.getElementById('btnStartDownload').addEventListener('click', () => {
+    document.getElementById('btnStartDownload')?.addEventListener('click', () => {
       const current = this.getSelectedSwarm();
       if (current) {
         current.state = 'downloading';
@@ -186,10 +197,361 @@ class HavenMissionControl {
       }
     });
 
-    // Window controls
-    document.getElementById('winMin')?.addEventListener('click', () => window.havenNative?.minimize?.());
-    document.getElementById('winMax')?.addEventListener('click', () => window.havenNative?.maximize?.());
-    document.getElementById('winClose')?.addEventListener('click', () => window.havenNative?.close?.());
+    // Initialize New Systems
+    this.initZoom();
+    this.initWindowControls();
+    this.initDragAndDrop();
+    this.initAddMagnetModal();
+  }
+
+  /* -------------------------------------------------------------------------
+     ZOOM & TEXT SCALING ENGINE
+     ------------------------------------------------------------------------- */
+  initZoom() {
+    this.currentZoom = parseFloat(localStorage.getItem('haven_zoom_factor')) || 1.0;
+    this.applyZoom(this.currentZoom);
+
+    this.btnZoomIn?.addEventListener('click', () => this.applyZoom(this.currentZoom + 0.1));
+    this.btnZoomOut?.addEventListener('click', () => this.applyZoom(this.currentZoom - 0.1));
+    this.btnZoomReset?.addEventListener('click', () => this.applyZoom(1.0));
+
+    window.addEventListener('keydown', (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === '=' || e.key === '+' || e.code === 'NumpadAdd') {
+          e.preventDefault();
+          this.applyZoom(this.currentZoom + 0.1);
+        } else if (e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract') {
+          e.preventDefault();
+          this.applyZoom(this.currentZoom - 0.1);
+        } else if (e.key === '0' || e.code === 'Numpad0') {
+          e.preventDefault();
+          this.applyZoom(1.0);
+        }
+      }
+    });
+
+    window.addEventListener('wheel', (e) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+        if (e.deltaY < 0) {
+          this.applyZoom(this.currentZoom + 0.05);
+        } else if (e.deltaY > 0) {
+          this.applyZoom(this.currentZoom - 0.05);
+        }
+      }
+    }, { passive: false });
+  }
+
+  applyZoom(factor) {
+    this.currentZoom = Math.min(1.8, Math.max(0.7, Math.round(factor * 100) / 100));
+    if (this.btnZoomReset) {
+      this.btnZoomReset.textContent = Math.round(this.currentZoom * 100) + '%';
+    }
+    localStorage.setItem('haven_zoom_factor', this.currentZoom.toString());
+
+    if (window.havenNative?.setZoomFactor) {
+      window.havenNative.setZoomFactor(this.currentZoom);
+    } else {
+      document.body.style.zoom = this.currentZoom;
+    }
+  }
+
+  /* -------------------------------------------------------------------------
+     WINDOW CONTROLS (NATIVE ELECTRON BINDINGS)
+     ------------------------------------------------------------------------- */
+  initWindowControls() {
+    if (!window.havenNative?.isDesktop) {
+      const winControls = document.querySelector('.window-controls');
+      if (winControls) winControls.style.display = 'none';
+      return;
+    }
+
+    this.winMin?.addEventListener('click', () => {
+      window.havenNative.minimizeWindow();
+    });
+
+    this.winMax?.addEventListener('click', async () => {
+      const isNowMax = await window.havenNative.maximizeWindow();
+      this.updateMaximizeButton(isNowMax);
+    });
+
+    this.winClose?.addEventListener('click', () => {
+      window.havenNative.closeWindow();
+    });
+
+    const checkMaxState = async () => {
+      if (window.havenNative?.isWindowMaximized) {
+        const isMax = await window.havenNative.isWindowMaximized();
+        this.updateMaximizeButton(isMax);
+      }
+    };
+
+    window.addEventListener('resize', checkMaxState);
+    setTimeout(checkMaxState, 400);
+  }
+
+  updateMaximizeButton(isMaximized) {
+    if (!this.winMax) return;
+    if (isMaximized) {
+      this.winMax.textContent = '❐';
+      this.winMax.title = 'Restore Window';
+    } else {
+      this.winMax.textContent = '▢';
+      this.winMax.title = 'Maximize Window';
+    }
+  }
+
+  /* -------------------------------------------------------------------------
+     DRAG AND DROP ENGINE FOR .TORRENT FILES
+     ------------------------------------------------------------------------- */
+  initDragAndDrop() {
+    let dragCounter = 0;
+
+    window.addEventListener('dragenter', (e) => {
+      e.preventDefault();
+      dragCounter++;
+      if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) {
+        if (this.dragDropOverlay) this.dragDropOverlay.classList.remove('hidden');
+      }
+    });
+
+    window.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    });
+
+    window.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      dragCounter--;
+      if (dragCounter <= 0) {
+        dragCounter = 0;
+        if (this.dragDropOverlay) this.dragDropOverlay.classList.add('hidden');
+      }
+    });
+
+    window.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      dragCounter = 0;
+      if (this.dragDropOverlay) this.dragDropOverlay.classList.add('hidden');
+
+      const files = e.dataTransfer?.files;
+      if (files && files.length > 0) {
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          if (file.name.toLowerCase().endsWith('.torrent')) {
+            await this.ingestFile(file);
+          } else {
+            this.appendLog(`[SAFEPATH] Rejected file ${file.name}. Only .torrent files accepted.`);
+          }
+        }
+      }
+    });
+  }
+
+  /* -------------------------------------------------------------------------
+     ADD MAGNET MODAL & UPLOAD CONFIGURATION
+     ------------------------------------------------------------------------- */
+  initAddMagnetModal() {
+    window.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'm' || e.key === 'M' || e.key === 'n' || e.key === 'N')) {
+        if (!['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) {
+          e.preventDefault();
+          this.openAddMagnetModal();
+        }
+      }
+    });
+
+    this.btnCloseMagnetModal?.addEventListener('click', () => this.closeAddMagnetModal());
+    this.btnCancelMagnet?.addEventListener('click', () => this.closeAddMagnetModal());
+
+    this.btnBrowseMagnetPath?.addEventListener('click', async () => {
+      if (window.havenNative?.selectFolder) {
+        const selected = await window.havenNative.selectFolder();
+        if (selected && this.modalMagnetPath) {
+          this.modalMagnetPath.value = selected;
+        }
+      }
+    });
+
+    this.modalMagnetUri?.addEventListener('input', () => {
+      this.validateModalMagnetUri();
+    });
+
+    this.btnConfirmMagnet?.addEventListener('click', () => {
+      this.submitAddMagnetModal();
+    });
+
+    // Listen for external OS magnet clicks and file open events
+    if (window.havenNative?.onOpenMagnet) {
+      window.havenNative.onOpenMagnet((uri) => {
+        this.openAddMagnetModal(uri);
+      });
+    }
+    if (window.havenNative?.onOpenTorrentFile) {
+      window.havenNative.onOpenTorrentFile(async (filePath) => {
+        this.ingestTorrentFilePath(filePath);
+      });
+    }
+  }
+
+  openAddMagnetModal(initialUri = '') {
+    if (!this.addMagnetModal) return;
+    if (this.modalMagnetUri) {
+      this.modalMagnetUri.value = initialUri || this.uriInput?.value.trim() || '';
+    }
+    this.validateModalMagnetUri();
+    this.addMagnetModal.classList.remove('hidden');
+    setTimeout(() => this.modalMagnetUri?.focus(), 50);
+  }
+
+  closeAddMagnetModal() {
+    if (this.addMagnetModal) this.addMagnetModal.classList.add('hidden');
+  }
+
+  validateModalMagnetUri() {
+    const raw = this.modalMagnetUri?.value.trim() || '';
+    if (!raw) {
+      if (this.magnetHashBadge) {
+        this.magnetHashBadge.textContent = 'AWAITING URI';
+        this.magnetHashBadge.className = 'badge-status-sub font-mono';
+      }
+      return null;
+    }
+
+    if (!raw.startsWith('magnet:?')) {
+      if (this.magnetHashBadge) {
+        this.magnetHashBadge.textContent = 'INVALID SCHEME';
+        this.magnetHashBadge.className = 'badge-status-sub font-mono badge-warn';
+      }
+      return null;
+    }
+
+    try {
+      const params = new URLSearchParams(raw.replace(/^magnet:\?/, ''));
+      const xt = params.get('xt') || '';
+      const dn = params.get('dn') || '';
+      const hash = xt.replace(/^urn:bt[i|m]h:/i, '') || '';
+
+      if (dn && this.modalMagnetName && !this.modalMagnetName.value) {
+        this.modalMagnetName.value = decodeURIComponent(dn);
+      }
+
+      if (hash && hash.length >= 32) {
+        if (this.magnetHashBadge) {
+          this.magnetHashBadge.textContent = `VALID BTIH: ${hash.slice(0, 8).toUpperCase()}...`;
+          this.magnetHashBadge.className = 'badge-status-sub font-mono badge-valid';
+        }
+        return { params, xt, dn: dn || this.modalMagnetName?.value || 'magnet-swarm', hash };
+      } else {
+        if (this.magnetHashBadge) {
+          this.magnetHashBadge.textContent = 'PARSED (NO BTIH)';
+          this.magnetHashBadge.className = 'badge-status-sub font-mono badge-warn';
+        }
+        return { params, xt, dn: dn || 'magnet-swarm', hash: hash || '0123456789abcdef0123456789abcdef01234567' };
+      }
+    } catch (_) {
+      if (this.magnetHashBadge) {
+        this.magnetHashBadge.textContent = 'SYNTAX ERROR';
+        this.magnetHashBadge.className = 'badge-status-sub font-mono badge-warn';
+      }
+      return null;
+    }
+  }
+
+  submitAddMagnetModal() {
+    const parsed = this.validateModalMagnetUri();
+    if (!parsed) {
+      alert('Please provide a valid magnet:?xt=urn:btih:... URI.');
+      this.modalMagnetUri?.focus();
+      return;
+    }
+
+    const dn = this.modalMagnetName?.value.trim() || parsed.dn || 'magnet-payload';
+    const targetMount = this.modalMagnetPath?.value.trim() || 'F:\\Torrent\\Storage';
+    const uploadLimit = parseInt(document.getElementById('optUploadLimit')?.value || '0', 10);
+    const seedRatio = parseFloat(document.getElementById('optSeedRatio')?.value || '0');
+    const uploadSlots = parseInt(document.getElementById('optUploadSlots')?.value || '8', 10);
+    const superSeeding = !!document.getElementById('optSuperSeeding')?.checked;
+    const sequential = !!document.getElementById('optSequential')?.checked;
+    const autoStart = !!document.getElementById('optAutoStart')?.checked;
+
+    const isRisky = /\.(exe|bat|cmd|ps1|iso|vbs)$/i.test(dn);
+
+    const newSwarm = {
+      id: 't-' + Date.now(),
+      num: String(this.swarms.length + 1).padStart(2, '0'),
+      numType: isRisky ? 'red' : 'active',
+      name: dn,
+      hash: parsed.hash,
+      sizeFormatted: '1.45 GB',
+      sizeBytes: 1556925644,
+      progressPct: 0.0,
+      progressSub: '0.0 MB',
+      progressState: isRisky ? 'halted' : (autoStart ? 'active' : 'paused'),
+      securityBadge: isRisky ? 'status-exec-blocked' : 'status-safepath-ok',
+      securityText: isRisky ? '[EXEC RISK]' : '[SAFEPATH OK]',
+      downSpeed: '0.0 KB/s',
+      upSpeed: '0.0 KB/s',
+      peers: '28',
+      peersLeech: '6',
+      eta: autoStart ? 'Estimating' : 'Paused',
+      state: isRisky ? 'quarantined' : (autoStart ? 'downloading' : 'paused'),
+      targetMount: targetMount,
+      freeVolume: '382.4 GB',
+      volumeType: 'NVMe',
+      uploadLimit: uploadLimit,
+      seedRatioGoal: seedRatio,
+      uploadSlots: uploadSlots,
+      superSeeding: superSeeding,
+      sequential: sequential,
+      files: [
+        { name: dn, path: '/payload/', size: '1.45 GB', verdict: isRisky ? 'badge-risk' : 'verdict-ok', verdictText: isRisky ? '[EXEC RISK]' : '[SAFEPATH OK]', selected: !isRisky, isRisk: isRisky, locked: isRisky }
+      ],
+      quarantine: isRisky ? {
+        active: true,
+        title: `QUARANTINE ACTIVE // ${dn.toUpperCase()}`,
+        desc: 'Executable or script extension detected. File is locked from direct disk flush until overridden.'
+      } : null,
+      peersList: [
+        { ip: '198.51.100.24 (US)', client: 'libtorrent/2.0', speed: '1.8 MB/s', enc: 'TLS', encClass: 'badge-enc-tls' }
+      ],
+      bitfield: { total: 512, verified: 0, inFlight: autoStart ? 4 : 0 },
+      tracker: {
+        active: 'tracker.opentrackr.org:1337',
+        reannounce: '00:15:00',
+        scrape: '112 / 24'
+      }
+    };
+
+    this.swarms.unshift(newSwarm);
+    this.selectedId = newSwarm.id;
+    this.saveSwarms();
+    this.closeAddMagnetModal();
+    if (this.uriInput) this.uriInput.value = '';
+    this.render();
+    this.appendLog(`[INGEST] Ingested Magnet swarm: ${dn} (UpLimit: ${uploadLimit ? uploadLimit + 'kB/s' : '∞'}, Ratio: ${seedRatio ? seedRatio + 'x' : '∞'}, SuperSeed: ${superSeeding})`);
+  }
+
+  async ingestTorrentFilePath(filePath) {
+    if (!window.havenNative?.readTorrentFile) return;
+    try {
+      const data = await window.havenNative.readTorrentFile(filePath);
+      if (data) {
+        const fileObj = {
+          name: data.name,
+          size: data.size,
+          arrayBuffer: async () => {
+            const binary = atob(data.buffer);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            return bytes.buffer;
+          }
+        };
+        await this.ingestFile(fileObj);
+      }
+    } catch (e) {
+      this.appendLog(`[ERROR] Failed to ingest .torrent file from path: ${e.message}`);
+    }
   }
 
   getSelectedSwarm() {
