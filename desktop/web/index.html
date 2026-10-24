@@ -300,14 +300,14 @@
           <!-- WAVEFORM GRAPH -->
           <div class="waveform-card">
             <div class="waveform-header">
-              <span class="waveform-title">THROUGHPUT WAVEFORM - 60S</span>
+              <span class="waveform-title">THROUGHPUT WAVEFORM // REAL-TIME 60S</span>
               <div class="waveform-legend">
-                <span class="legend-down">— DOWN</span>
-                <span class="legend-up">— UP</span>
-                <span class="legend-now font-mono" id="waveformNow">NOW: 8.42 MB/s</span>
+                <span class="legend-down">● DOWN</span>
+                <span class="legend-up">● UP</span>
+                <span class="legend-now font-mono" id="waveformNow">NOW: 0.00 MB/s</span>
               </div>
             </div>
-            <canvas id="waveformCanvas" width="420" height="90" class="waveform-canvas"></canvas>
+            <canvas id="waveformCanvas" width="460" height="85" class="waveform-canvas"></canvas>
           </div>
 
           <!-- PEER MESH TABLE -->
@@ -610,6 +610,46 @@
         <button class="btn-ctrl btn-load" id="btnConfirmDelete">[CONFIRM REMOVAL]</button>
       </div>
     </div>
+  </div>
+
+  <!-- FLOATING SWARM ACTIONS CONTEXT MENU -->
+  <div id="swarmContextMenu" class="swarm-context-menu hidden">
+    <div class="menu-header font-mono" id="menuSwarmName">TORRENT ACTIONS</div>
+    <div class="menu-divider"></div>
+    <button class="menu-item" id="menuActionResume" type="button">
+      <span class="menu-icon">▶</span>
+      <span class="menu-label">Resume / Start Transfer</span>
+    </button>
+    <button class="menu-item" id="menuActionPause" type="button">
+      <span class="menu-icon">⏸</span>
+      <span class="menu-label">Pause Transfer</span>
+    </button>
+    <button class="menu-item" id="menuActionStop" type="button">
+      <span class="menu-icon">⏹</span>
+      <span class="menu-label">Stop Transfer</span>
+    </button>
+    <button class="menu-item" id="menuActionRecheck" type="button">
+      <span class="menu-icon">🔄</span>
+      <span class="menu-label">Force Re-Check (SHA-256)</span>
+    </button>
+    <div class="menu-divider"></div>
+    <button class="menu-item" id="menuActionOpenFolder" type="button">
+      <span class="menu-icon">📂</span>
+      <span class="menu-label">Open Download Folder</span>
+    </button>
+    <button class="menu-item" id="menuActionCopyMagnet" type="button">
+      <span class="menu-icon">🧲</span>
+      <span class="menu-label">Copy Magnet URI</span>
+    </button>
+    <button class="menu-item" id="menuActionCopyHash" type="button">
+      <span class="menu-icon">📋</span>
+      <span class="menu-label">Copy Info-Hash (BTIH)</span>
+    </button>
+    <div class="menu-divider"></div>
+    <button class="menu-item menu-item-danger" id="menuActionDelete" type="button">
+      <span class="menu-icon">🗑</span>
+      <span class="menu-label">Remove / Delete...</span>
+    </button>
   </div>
 
   <script src="app.js"></script>

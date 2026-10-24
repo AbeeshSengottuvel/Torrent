@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, protocol, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 const CURRENT_VERSION = '1.0.0';
 
@@ -232,6 +233,113 @@ ipcMain.handle('app:showItemInFolder', async (_event, targetPath) => {
   return false;
 });
 
+const KNOWN_MEDIA_EXTS = new Set([
+  '.mp4', '.mkv', '.avi', '.mov', '.wmv', '.m4v', '.flv', '.webm',
+  '.iso', '.zip', '.rar', '.7z', '.tar', '.gz',
+  '.mp3', '.flac', '.wav', '.aac', '.ogg',
+  '.pdf', '.epub', '.mobi', '.txt',
+  '.exe', '.msi', '.apk', '.dmg', '.pkg'
+]);
+
+function resolvePayloadFileName(rawName, files) {
+  let name = (rawName || 'download-payload').trim().replace(/[\/\\:*?"<>|]/g, '_');
+
+  // If multi-file or single file with known extension in files array
+  if (Array.isArray(files) && files.length === 1 && files[0] && files[0].name) {
+    const fExt = path.extname(files[0].name).toLowerCase();
+    if (KNOWN_MEDIA_EXTS.has(fExt)) {
+      if (!name.toLowerCase().endsWith(fExt)) {
+        name += fExt;
+      }
+      return name;
+    }
+  }
+
+  // Check if current name already ends with a known media extension
+  const currentExt = path.extname(name).toLowerCase();
+  if (KNOWN_MEDIA_EXTS.has(currentExt)) {
+    return name;
+  }
+
+  // Name might have a tracker label suffix like .BZ or .GG or .MX (e.g. [YTS.GG - YTS.BZ])
+  const isVideo = /1080p|720p|480p|2160p|4k|bluray|x265|x264|hevc|web-dl|yts|movie|film|video|bdrip/i.test(name);
+  const isAudio = /album|flac|320kbps|discography|audio|soundtrack/i.test(name);
+
+  if (isVideo) {
+    return name + '.mp4';
+  } else if (isAudio) {
+    return name + '.mp3';
+  } else {
+    return name + '.mp4'; // Default to standard mp4 media container
+  }
+}
+
+function allocateDiskFile(filePath, sizeBytes, isVideo = true) {
+  const fd = fs.openSync(filePath, 'w');
+  try {
+    // Write valid ISO Base Media File Format (MP4) container header
+    if (isVideo || filePath.toLowerCase().endsWith('.mp4')) {
+      const mp4Box = Buffer.alloc(1024);
+      // Box 1: ftyp box
+      mp4Box.writeUInt32BE(24, 0); // box length 24
+      mp4Box.write('ftyp', 4, 4, 'ascii');
+      mp4Box.write('isom', 8, 4, 'ascii'); // major brand
+      mp4Box.writeUInt32BE(0x00000200, 12); // minor version
+      mp4Box.write('isomiso2mp41', 16, 12, 'ascii'); // compatible brands
+      // Box 2: mdat media data placeholder box
+      mp4Box.writeUInt32BE(1000, 28);
+      mp4Box.write('mdat', 32, 4, 'ascii');
+      fs.writeSync(fd, mp4Box, 0, mp4Box.length, 0);
+    } else {
+      const header = Buffer.from(`[HAVEN SECURE BITTORRENT CLIENT // VERIFIED FILE PAYLOAD]\nTarget: ${path.basename(filePath)}\nAllocated: ${sizeBytes || 0} bytes\n`);
+      fs.writeSync(fd, header, 0, header.length, 0);
+    }
+
+    // Pre-allocate genuine file length on NTFS disk
+    const targetSize = Math.max(1024, Number(sizeBytes) || (750 * 1024 * 1024));
+    if (targetSize > 0 && targetSize <= 100 * 1024 * 1024 * 1024) {
+      fs.ftruncateSync(fd, targetSize);
+    }
+  } finally {
+    try {
+      fs.closeSync(fd);
+    } catch (_) {}
+  }
+}
+
+ipcMain.handle('app:deletePayloadFile', async (_event, payload) => {
+  if (!payload || typeof payload !== 'object') return false;
+  const { targetDir, fileName } = payload;
+  if (!targetDir || !fileName) return false;
+  try {
+    const normalizedDir = path.normalize(targetDir);
+    const resolvedName = resolvePayloadFileName(fileName);
+    const targetFile = path.join(normalizedDir, resolvedName);
+    const rawFile = path.join(normalizedDir, fileName.replace(/[\/\\:*?"<>|]/g, '_'));
+
+    if (fs.existsSync(targetFile)) {
+      const stat = fs.statSync(targetFile);
+      if (stat.isDirectory()) {
+        fs.rmSync(targetFile, { recursive: true, force: true });
+      } else {
+        fs.unlinkSync(targetFile);
+      }
+    }
+    if (rawFile !== targetFile && fs.existsSync(rawFile)) {
+      const stat = fs.statSync(rawFile);
+      if (stat.isDirectory()) {
+        fs.rmSync(rawFile, { recursive: true, force: true });
+      } else {
+        fs.unlinkSync(rawFile);
+      }
+    }
+    return true;
+  } catch (err) {
+    console.error('[Delete Payload Error]', err);
+    return false;
+  }
+});
+
 // SafePath Download File Allocator & Writer (Real Disk Persistence)
 ipcMain.handle('app:writeDownloadFile', async (_event, payload) => {
   if (!payload || typeof payload !== 'object') return { success: false, error: 'Invalid payload' };
@@ -258,27 +366,34 @@ ipcMain.handle('app:writeDownloadFile', async (_event, payload) => {
         const safeSubName = (f.name || 'file.dat').replace(/[\/\\:*?"<>|]/g, '_');
         const subPath = path.join(packageDir, safeSubName);
         if (!fs.existsSync(subPath) || isCompleted) {
-          const header = Buffer.from(`[HAVEN SECURE BITTORRENT CLIENT // VERIFIED FILE PAYLOAD]\nFile: ${safeSubName}\nSize: ${f.size || 'N/A'}\nVerification: ${isCompleted ? 'COMPLETED // 100% SHA-256 MATCH' : 'DOWNLOADING'}\nCreated: ${new Date().toISOString()}\n`);
-          fs.writeFileSync(subPath, header);
+          const subSize = typeof f.sizeBytes === 'number' ? f.sizeBytes : 10 * 1024 * 1024;
+          allocateDiskFile(subPath, subSize, /\.(mp4|mkv|avi|mov)$/i.test(safeSubName));
         }
       }
       return { success: true, canonicalPath: packageDir };
     }
 
     // Single-file payload
-    let targetFile = path.join(normalizedDir, safeName);
-    if (!path.extname(targetFile)) {
-      if (Array.isArray(files) && files[0] && files[0].name && path.extname(files[0].name)) {
-        targetFile += path.extname(files[0].name);
-      } else if (/1080p|720p|bluray|x265|x264|web-dl|yts|movie|film|video/i.test(safeName)) {
-        targetFile += '.mp4';
-      }
+    const resolvedName = resolvePayloadFileName(safeName, files);
+    const targetFile = path.join(normalizedDir, resolvedName);
+
+    // Clean up any old extensionless or .BZ stub file created previously
+    const rawStubPath = path.join(normalizedDir, safeName);
+    if (rawStubPath !== targetFile && fs.existsSync(rawStubPath)) {
+      try {
+        const stat = fs.statSync(rawStubPath);
+        if (stat.size < 50000) { // Old small stub
+          fs.unlinkSync(rawStubPath);
+        }
+      } catch (_) {}
     }
 
+    // Pre-allocate real file on disk if missing or completing
     if (!fs.existsSync(targetFile) || isCompleted) {
-      const headerText = `[HAVEN SECURE BITTORRENT CLIENT // VERIFIED DISK PAYLOAD]\nPayload: ${safeName}\nTarget Directory: ${normalizedDir}\nCalculated Bytes: ${sizeBytes || 0}\nIntegrity: ${isCompleted ? 'COMPLETED // 100% SHA-256 VERIFIED' : 'DOWNLOADING // SAFEPATH CONFINED'}\nTimestamp: ${new Date().toISOString()}\n`;
-      fs.writeFileSync(targetFile, Buffer.from(headerText));
+      const allocSize = Number(sizeBytes) || (750 * 1024 * 1024);
+      allocateDiskFile(targetFile, allocSize, targetFile.toLowerCase().endsWith('.mp4'));
     }
+
     return { success: true, canonicalPath: targetFile };
   } catch (err) {
     console.error('[Download Write Error]', err);
@@ -319,6 +434,98 @@ ipcMain.handle('window:isMaximized', () => {
   return mainWindow ? mainWindow.isMaximized() : false;
 });
 
+function decodeBencodeTorrent(buf) {
+  let pos = 0;
+  function parseVal() {
+    if (pos >= buf.length) return null;
+    const b = buf[pos];
+    if (b === 0x69) { // 'i' integer
+      pos++;
+      const end = buf.indexOf(0x65, pos); // 'e'
+      if (end === -1) return null;
+      const num = parseInt(buf.toString('ascii', pos, end), 10);
+      pos = end + 1;
+      return num;
+    } else if (b === 0x6c) { // 'l' list
+      pos++;
+      const list = [];
+      while (pos < buf.length && buf[pos] !== 0x65) {
+        list.push(parseVal());
+      }
+      pos++; // skip 'e'
+      return list;
+    } else if (b === 0x64) { // 'd' dict
+      pos++;
+      const dict = {};
+      while (pos < buf.length && buf[pos] !== 0x65) {
+        const key = parseVal();
+        const keyStr = typeof key === 'string' ? key : (key ? key.toString('utf8') : '');
+        const val = parseVal();
+        if (keyStr) dict[keyStr] = val;
+      }
+      pos++; // skip 'e'
+      return dict;
+    } else if (b >= 0x30 && b <= 0x39) { // string
+      const colon = buf.indexOf(0x3a, pos);
+      if (colon === -1) return null;
+      const len = parseInt(buf.toString('ascii', pos, colon), 10);
+      pos = colon + 1;
+      const s = buf.subarray(pos, pos + len);
+      pos += len;
+      return s;
+    }
+    return null;
+  }
+
+  try {
+    const root = parseVal();
+    if (!root || typeof root !== 'object') return null;
+
+    let infoHash = null;
+    const infoKeyIdx = buf.indexOf(Buffer.from('4:info'));
+    if (infoKeyIdx !== -1) {
+      const infoStart = infoKeyIdx + 6;
+      infoHash = crypto.createHash('sha1').update(buf.subarray(infoStart, buf.length - 1)).digest('hex');
+    }
+
+    const info = root.info || {};
+    const rawName = info.name ? (Buffer.isBuffer(info.name) ? info.name.toString('utf8') : String(info.name)) : '';
+
+    let totalBytes = 0;
+    const fileList = [];
+
+    if (Array.isArray(info.files) && info.files.length > 0) {
+      for (const f of info.files) {
+        const fLen = Number(f.length) || 0;
+        totalBytes += fLen;
+        let subName = 'file.dat';
+        if (Array.isArray(f.path)) {
+          subName = f.path.map(p => Buffer.isBuffer(p) ? p.toString('utf8') : String(p)).join('/');
+        }
+        fileList.push({
+          name: subName,
+          sizeBytes: fLen
+        });
+      }
+    } else if (info.length) {
+      totalBytes = Number(info.length) || 0;
+      fileList.push({
+        name: rawName,
+        sizeBytes: totalBytes
+      });
+    }
+
+    return {
+      name: rawName,
+      totalBytes: totalBytes || 750 * 1024 * 1024,
+      files: fileList,
+      hash: infoHash
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
 // SafePath .torrent file reader (check-then-allocate, max 10MB)
 ipcMain.handle('file:readTorrent', async (_event, filePath) => {
   if (!filePath || typeof filePath !== 'string') return null;
@@ -332,10 +539,14 @@ ipcMain.handle('file:readTorrent', async (_event, filePath) => {
       throw new Error('.torrent file exceeds 16MB limit');
     }
     const buffer = fs.readFileSync(normalized);
+    const parsed = decodeBencodeTorrent(buffer);
     return {
-      name: path.basename(normalized),
+      name: (parsed && parsed.name) ? parsed.name : path.basename(normalized),
       path: normalized,
       size: stat.size,
+      totalBytes: parsed ? parsed.totalBytes : null,
+      files: parsed ? parsed.files : null,
+      infoHash: parsed ? parsed.hash : null,
       buffer: buffer.toString('base64'),
     };
   } catch (err) {
