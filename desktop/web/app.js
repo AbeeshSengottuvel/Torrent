@@ -1,116 +1,16 @@
-// Cairn Web UI Architecture & Simulation Logic
+// Haven Desktop Architecture & State Management
 // Conforms to docs/PLAN.md Section 5, Section 16, Section 18, and Section 25
 
 class CairnApp {
   constructor() {
-    this.torrents = [
-      {
-        id: 't-1',
-        name: 'ubuntu-24.04-desktop-amd64.iso',
-        category: 'Linux ISOs',
-        totalBytes: 5976883200, // 5.56 GiB
-        completedBytes: 3884974080,
-        progress: 0.65,
-        downSpeed: 21400000, // 21.4 MB/s
-        upSpeed: 2450000,    // 2.45 MB/s
-        eta: 98,
-        peers: 64,
-        seeds: 218,
-        ratio: 0.42,
-        state: 'downloading',
-        infoHash: '5a4b3c2d1e0f8a7b6c5d4e3f2a1b0c9d8e7f6a5b',
-        storagePath: 'C:\\Users\\Abeesh\\Downloads\\Cairn\\ubuntu-24.04',
-        sequential: false,
-        files: [
-          { name: 'ubuntu-24.04-desktop-amd64.iso', size: 5976883200, progress: 0.65, risky: true, selected: true }
-        ],
-        trackers: ['https://torrent.ubuntu.com/announce', 'udp://tracker.opentrackr.org:1337/announce'],
-        peersList: [
-          { client: 'qBittorrent/4.6.3', encrypted: true, down: '8.4 MB/s', up: '650 KB/s' },
-          { client: 'Transmission/4.0.5', encrypted: true, down: '6.2 MB/s', up: '1.2 MB/s' },
-          { client: 'Deluge/2.1.1', encrypted: true, down: '4.8 MB/s', up: '400 KB/s' },
-          { client: 'libtorrent/2.0.9', encrypted: true, down: '2.0 MB/s', up: '200 KB/s' }
-        ]
-      },
-      {
-        id: 't-2',
-        name: 'debian-12.5.0-amd64-netinst.iso',
-        category: 'Linux ISOs',
-        totalBytes: 654311424,
-        completedBytes: 654311424,
-        progress: 1.0,
-        downSpeed: 0,
-        upSpeed: 4200000,
-        eta: 0,
-        peers: 18,
-        seeds: 92,
-        ratio: 2.38,
-        state: 'seeding',
-        infoHash: '9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b',
-        storagePath: 'C:\\Users\\Abeesh\\Downloads\\Cairn\\debian-12',
-        sequential: false,
-        files: [
-          { name: 'debian-12.5.0-amd64-netinst.iso', size: 654311424, progress: 1.0, risky: true, selected: true }
-        ],
-        trackers: ['https://cdimage.debian.org:6969/announce'],
-        peersList: [
-          { client: 'Cairn/1.0-alpha', encrypted: true, down: '0 B/s', up: '2.1 MB/s' },
-          { client: 'qBittorrent/4.6.2', encrypted: true, down: '0 B/s', up: '1.8 MB/s' }
-        ]
-      },
-      {
-        id: 't-3',
-        name: 'NASA Earth Surface Elevation Dataset (2026)',
-        category: 'Open Datasets',
-        totalBytes: 14200500000, // ~14.2 GB
-        completedBytes: 4544160000,
-        progress: 0.32,
-        downSpeed: 12800000,
-        upSpeed: 950000,
-        eta: 754,
-        peers: 32,
-        seeds: 45,
-        ratio: 0.15,
-        state: 'downloading',
-        infoHash: '3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c',
-        storagePath: 'C:\\Users\\Abeesh\\Downloads\\Cairn\\nasa-elevation',
-        sequential: true,
-        files: [
-          { name: 'elevation_north_america.nc', size: 7100250000, progress: 0.55, risky: false, selected: true },
-          { name: 'elevation_south_america.nc', size: 7100250000, progress: 0.09, risky: false, selected: true }
-        ],
-        trackers: ['udp://open.tracker.cl:1337/announce'],
-        peersList: [
-          { client: 'Cairn/1.0-alpha', encrypted: true, down: '7.2 MB/s', up: '450 KB/s' },
-          { client: 'Transmission/4.0.4', encrypted: true, down: '5.6 MB/s', up: '500 KB/s' }
-        ]
-      },
-      {
-        id: 't-4',
-        name: 'archlinux-2026.10-x86_64.iso',
-        category: 'Linux ISOs',
-        totalBytes: 1120000000,
-        completedBytes: 250000000,
-        progress: 0.22,
-        downSpeed: 0,
-        upSpeed: 0,
-        eta: 0,
-        peers: 0,
-        seeds: 0,
-        ratio: 0.04,
-        state: 'paused',
-        infoHash: '1f2e3d4c5b6a708192a3b4c5d6e7f8a9b0c1d2e3',
-        storagePath: 'C:\\Users\\Abeesh\\Downloads\\Cairn\\archlinux',
-        sequential: false,
-        files: [
-          { name: 'archlinux-2026.10.iso', size: 1120000000, progress: 0.22, risky: true, selected: true }
-        ],
-        trackers: ['https://releng.archlinux.org/tracker/announce'],
-        peersList: []
-      }
-    ];
+    // Clean initial state for installed client; persists user's real transfers
+    let saved = null;
+    try {
+      saved = localStorage.getItem('haven_transfers');
+    } catch (e) {}
 
-    this.selectedTorrentId = 't-1';
+    this.torrents = saved ? JSON.parse(saved) : [];
+    this.selectedTorrentId = this.torrents.length > 0 ? this.torrents[0].id : null;
     this.currentFilter = 'all';
     this.searchQuery = '';
     this.netguardState = 'guarded'; // 'guarded' or 'blocked'
@@ -122,6 +22,12 @@ class CairnApp {
     this.attachEvents();
     this.render();
     this.startSimulationTicker();
+  }
+
+  saveTorrents() {
+    try {
+      localStorage.setItem('haven_transfers', JSON.stringify(this.torrents));
+    } catch (e) {}
   }
 
   initElements() {
@@ -562,6 +468,7 @@ class CairnApp {
 
     this.torrents.unshift(newTorrent);
     this.selectedTorrentId = newTorrent.id;
+    this.saveTorrents();
     this.clearDroppedFile();
     document.getElementById('addTorrentModal').classList.add('hidden');
     this.render();
@@ -604,6 +511,33 @@ class CairnApp {
       if (this.searchQuery && !t.name.toLowerCase().includes(this.searchQuery)) return false;
       return true;
     });
+
+    if (filtered.length === 0) {
+      this.transferListBody.innerHTML = `
+        <tr>
+          <td colspan="10" style="text-align: center; padding: 100px 20px; color: var(--text-muted);">
+            <div style="display: inline-flex; flex-direction: column; align-items: center; gap: 14px;">
+              <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(14, 165, 233, 0.1); display: flex; align-items: center; justify-content: center; color: var(--accent);">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+              </div>
+              <h3 style="font-weight: 600; color: #f1f5f9; margin: 0; font-size: 1.15rem;">No Active Transfers</h3>
+              <p style="margin: 0; max-width: 380px; font-size: 0.88rem; line-height: 1.5; color: #94a3b8;">
+                Drop a <code style="color: #38bdf8; background: rgba(15, 23, 42, 0.6); padding: 2px 6px; border-radius: 4px;">.torrent</code> file anywhere in this window, or click <strong>+ Add Torrent</strong> above to get started.
+              </p>
+              <button onclick="document.getElementById('btnAddTorrent').click()" class="btn btn-primary" style="margin-top: 8px;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                <span>Add Torrent</span>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+      return;
+    }
 
     this.transferListBody.innerHTML = filtered.map(t => {
       const isSelected = t.id === this.selectedTorrentId;
@@ -718,6 +652,7 @@ class CairnApp {
 
     // 2. Remove from Haven client list
     this.torrents = this.torrents.filter(x => x.id !== this.pendingDeleteId);
+    this.saveTorrents();
 
     if (this.selectedTorrentId === this.pendingDeleteId) {
       this.selectedTorrentId = this.torrents.length > 0 ? this.torrents[0].id : null;
@@ -739,8 +674,10 @@ class CairnApp {
     const t = this.torrents.find(x => x.id === this.selectedTorrentId);
     if (!t) {
       document.getElementById('inspectorTorrentName').textContent = 'No selection';
+      this.inspector.classList.add('collapsed');
       return;
     }
+    this.inspector.classList.remove('collapsed');
 
     document.getElementById('inspectorTorrentName').textContent = t.name;
     document.getElementById('metaInfoHash').textContent = t.infoHash;
