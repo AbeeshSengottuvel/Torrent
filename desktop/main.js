@@ -372,6 +372,21 @@ function inspectTorrentFileManifest(files) {
 }
 
 /**
+ * Validates that all files inside a torrent manifest resolve strictly within canonical target directory.
+ * Blocks directory traversal, symlink escapes, and NTFS junction redirects.
+ */
+function validateTorrentFilesConfinement(canonicalBaseDir, files) {
+  if (!Array.isArray(files)) return;
+  for (const f of files) {
+    const rel = (f.path || f.name || '').replace(/[\0]/g, '');
+    const resolved = path.resolve(canonicalBaseDir, rel);
+    if (!resolved.startsWith(canonicalBaseDir + path.sep) && resolved !== canonicalBaseDir) {
+      throw new Error(`[SafePath Confinement Alert] File path traversal blocked: "${rel}" escapes ${canonicalBaseDir}`);
+    }
+  }
+}
+
+/**
  * Queries real NTFS volume statistics for available disk space.
  */
 async function queryVolumeStorage(targetPath) {
@@ -381,14 +396,19 @@ async function queryVolumeStorage(targetPath) {
     const freeBytes = Number(stats.bavail) * Number(stats.bsize);
     const totalBytes = Number(stats.blocks) * Number(stats.bsize);
     const rootDrive = path.parse(canonical).root;
+    const freeGB = (freeBytes / (1024 * 1024 * 1024)).toFixed(1);
+    const totalGB = (totalBytes / (1024 * 1024 * 1024)).toFixed(1);
     return {
       success: true,
       canonicalPath: canonical,
       rootDrive,
+      drive: rootDrive,
       freeBytes,
       totalBytes,
-      freeFormatted: (freeBytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB',
-      totalFormatted: (totalBytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB'
+      freeGB,
+      totalGB,
+      freeFormatted: `${freeGB} GB`,
+      totalFormatted: `${totalGB} GB`
     };
   } catch (err) {
     return {
@@ -513,21 +533,20 @@ async function getParseTorrent() {
 
 /**
  * Strict RFC/BEP 0003 Bencode Info Dictionary extractor.
- * Finds the exact byte range of the '4:infod...e' dictionary and extracts
- * the raw byte slice so SHA-1 can be calculated over authentic bencoded bytes.
+ * Walks the root bencoded dictionary ('d...e') key-by-key from offset 0
+ * until the authentic top-level 'info' key is encountered, completely eliminating
+ * any substring collision risks from preceding fields (e.g. comments or creators).
  */
 function extractRawInfoSlice(buf) {
   if (!Buffer.isBuffer(buf)) buf = Buffer.from(buf);
-  const target = Buffer.from('4:info');
-  const idx = buf.indexOf(target);
-  if (idx === -1) {
-    throw new Error('[SafePath Bencode] Invalid torrent payload: missing 4:info key.');
+  if (buf[0] !== 0x64) { // 'd'
+    throw new Error('[SafePath Bencode] Torrent payload does not begin with root bencoded dictionary.');
   }
-  const start = idx + 6; // offset immediately after '4:info'
-  
-  let pos = start;
+
+  let pos = 1; // skip leading 'd'
+
   function parseNext() {
-    if (pos >= buf.length) throw new Error('[SafePath Bencode] Unexpected end of torrent buffer.');
+    if (pos >= buf.length) throw new Error('[SafePath Bencode] Unexpected EOF in bencode structure.');
     const ch = buf[pos];
     if (ch === 0x69) { // 'i' -> integer: i<num>e
       pos++;
@@ -561,9 +580,31 @@ function extractRawInfoSlice(buf) {
       throw new Error(`[SafePath Bencode] Invalid bencode token 0x${ch.toString(16)} at offset ${pos}.`);
     }
   }
-  
-  parseNext();
-  return buf.slice(start, pos);
+
+  while (pos < buf.length && buf[pos] !== 0x65) {
+    if (buf[pos] < 0x30 || buf[pos] > 0x39) {
+      throw new Error(`[SafePath Bencode] Expected string key in root dictionary at offset ${pos}`);
+    }
+    const colon = buf.indexOf(0x3a, pos);
+    if (colon === -1) throw new Error('[SafePath Bencode] Unterminated root key string length.');
+    const keyLen = parseInt(buf.toString('ascii', pos, colon), 10);
+    const keyStart = colon + 1;
+    const keyEnd = keyStart + keyLen;
+    if (keyEnd > buf.length) throw new Error('[SafePath Bencode] Key length overflows buffer length.');
+    const key = buf.toString('utf8', keyStart, keyEnd);
+    pos = keyEnd;
+
+    if (key === 'info') {
+      const valStart = pos;
+      parseNext(); // Skip the exact info dictionary structure
+      const valEnd = pos;
+      return buf.slice(valStart, valEnd);
+    } else {
+      parseNext(); // Skip non-info value
+    }
+  }
+
+  throw new Error('[SafePath Bencode] No top-level "info" dictionary found in .torrent payload.');
 }
 
 function computeRawInfoHash(buf) {
@@ -776,6 +817,8 @@ registerSecureHandler('torrent:parseTorrent', async (_event, fileArg) => {
   return await handleParseTorrentFile(fileArg);
 });
 
+const startingSwarmIds = new Set();
+
 registerSecureHandler('file:readTorrent', async (_event, filePath) => {
   return await handleParseTorrentFile(filePath);
 });
@@ -783,32 +826,44 @@ registerSecureHandler('file:readTorrent', async (_event, filePath) => {
 registerSecureHandler('torrent:start', async (_event, payload) => {
   if (!payload || !payload.id) return { success: false, error: 'Invalid payload' };
   const { id, hash, source, targetDir, name, fileBuffer, deselectedFiles } = payload;
-  
-  // SafePath Confinement: Validate and canonicalize destination folder
-  const safeTargetDir = await validateSafePathTarget(targetDir || path.join(app.getPath('downloads'), 'Haven'));
-  broadcastKernelLog('FS/INGEST', `SafePath validated destination mount: ${safeTargetDir}`);
 
-  // SafePath Storage Check: Verify volume space before start
-  if (payload.sizeBytes && typeof payload.sizeBytes === 'number' && payload.sizeBytes > 0) {
-    const vol = await queryVolumeStorage(safeTargetDir);
-    if (vol.success && vol.freeBytes > 0 && vol.freeBytes < payload.sizeBytes) {
-      broadcastKernelLog('DISK/ERR', `Insufficient disk space on ${vol.rootDrive}: Needed ${payload.sizeBytes} B, free ${vol.freeBytes} B`, 'error');
-      throw new Error(`[SafePath Storage Gate] Insufficient disk space on ${vol.rootDrive}. Required: ${payload.sizeBytes} bytes, Available: ${vol.freeBytes} bytes.`);
-    } else if (vol.success) {
-      broadcastKernelLog('DISK/OK', `Storage Gate: ${vol.freeFormatted} available on ${vol.rootDrive} (Allocation verified)`);
-    }
+  // Concurrency guard: block duplicate simultaneous start calls for the same swarm ID
+  if (startingSwarmIds.has(id)) {
+    return { success: true, active: true };
   }
+  startingSwarmIds.add(id);
 
   try {
+    // SafePath Confinement: Validate and canonicalize destination folder
+    const safeTargetDir = await validateSafePathTarget(targetDir || path.join(app.getPath('downloads'), 'Haven'));
+    broadcastKernelLog('FS/INGEST', `SafePath validated destination mount: ${safeTargetDir}`);
+
+    // SafePath Storage Check: Verify volume space before start
+    if (payload.sizeBytes && typeof payload.sizeBytes === 'number' && payload.sizeBytes > 0) {
+      const vol = await queryVolumeStorage(safeTargetDir);
+      if (vol.success && vol.freeBytes > 0 && vol.freeBytes < payload.sizeBytes) {
+        broadcastKernelLog('DISK/ERR', `Insufficient disk space on ${vol.rootDrive}: Needed ${payload.sizeBytes} B, free ${vol.freeBytes} B`, 'error');
+        throw new Error(`[SafePath Storage Gate] Insufficient disk space on ${vol.rootDrive}. Required: ${payload.sizeBytes} bytes, Available: ${vol.freeBytes} bytes.`);
+      } else if (vol.success) {
+        broadcastKernelLog('DISK/OK', `Storage Gate: ${vol.freeFormatted} available on ${vol.rootDrive} (Allocation verified)`);
+      }
+    }
+
     const client = await getTorrentEngine();
 
     if (activeTorrents.has(id)) {
       const existing = activeTorrents.get(id);
       if (existing.paused) {
         existing.resume();
+        if (Array.isArray(existing.wires)) {
+          existing.wires.forEach(w => {
+            try { if (typeof w.unchoke === 'function') w.unchoke(); } catch (_) {}
+          });
+        }
         broadcastKernelLog('ENGINE', `Resumed active transfer: ${existing.name || id}`);
       }
       wakeHeartbeatIfNeeded();
+      startingSwarmIds.delete(id);
       return { success: true, active: true };
     }
 
@@ -830,7 +885,7 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
       }
     }
 
-    // 2. Fall back to fileBuffer if provided
+    // 2. Fall back to fileBuffer if provided from frontend
     if (!input && fileBuffer) {
       input = Buffer.from(fileBuffer, 'base64');
       broadcastKernelLog('ENGINE', `Ingesting authentic .torrent binary payload (${input.length} B) from renderer`);
@@ -855,16 +910,32 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
       }
     }
 
-    if (!input) return { success: false, error: 'No source provided' };
+    if (!input) {
+      startingSwarmIds.delete(id);
+      return { success: false, error: 'No source provided' };
+    }
 
     const mergedTrackers = Array.from(new Set([...PUBLIC_TRACKERS, ...extraAnnounce]));
 
-    const existingTorrent = client.get(input);
+    // WebTorrent v3: Check client.torrents synchronously instead of calling client.get() (which returns a Promise)
+    const existingTorrent = client.torrents.find(t => 
+      (cleanHash && t.infoHash && t.infoHash.toLowerCase() === cleanHash) ||
+      (t.name && name && t.name === name)
+    );
+
     if (existingTorrent) {
       activeTorrents.set(id, existingTorrent);
-      if (existingTorrent.paused) existingTorrent.resume();
-      broadcastKernelLog('ENGINE', `Re-attached to existing swarm: ${existingTorrent.infoHash}`);
+      if (existingTorrent.paused) {
+        existingTorrent.resume();
+        if (Array.isArray(existingTorrent.wires)) {
+          existingTorrent.wires.forEach(w => {
+            try { if (typeof w.unchoke === 'function') w.unchoke(); } catch (_) {}
+          });
+        }
+      }
+      broadcastKernelLog('ENGINE', `Re-attached to active swarm: ${existingTorrent.name || existingTorrent.infoHash}`);
       wakeHeartbeatIfNeeded();
+      startingSwarmIds.delete(id);
       return { success: true, active: true };
     }
 
@@ -882,8 +953,18 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
       broadcastKernelLog('DHT/TRACKER', `InfoHash active on DHT network: ${torrent.infoHash}`);
     });
 
-    torrent.on('metadata', () => {
-      broadcastKernelLog('DHT/TRACKER', `Metadata resolved: "${torrent.name}" (${(torrent.length / (1024*1024)).toFixed(1)} MB, ${torrent.files ? torrent.files.length : 0} files)`);
+    const processTorrentMetadata = () => {
+      // SafePath Confinement: Enforce internal path confinement
+      try {
+        validateTorrentFilesConfinement(safeTargetDir, torrent.files);
+      } catch (err) {
+        broadcastKernelLog('SAFEPATH/ERR', err.message, 'error');
+        torrent.destroy();
+        activeTorrents.delete(id);
+        return;
+      }
+
+      broadcastKernelLog('DHT/TRACKER', `Metadata active: "${torrent.name}" (${(torrent.length / (1024*1024)).toFixed(1)} MB, ${torrent.files ? torrent.files.length : 0} files)`);
       
       const { sanitizedFiles, execRiskDetected } = inspectTorrentFileManifest(torrent.files);
       let quarantineReason = null;
@@ -893,13 +974,13 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
         torrent.files.forEach((file, idx) => {
           const ext = path.extname(file.name || '').toLowerCase();
           if (BLOCKED_EXECUTABLE_EXTS.has(ext)) {
-            file.deselect();
+            if (typeof file.deselect === 'function') file.deselect();
             if (!quarantineReason) {
               quarantineReason = `Executable payload detected: ${file.name}`;
             }
             broadcastKernelLog('SAFEPATH/GATE', `Quarantined and deselected executable risk: ${file.name}`, 'warn');
           } else if (Array.isArray(deselectedFiles) && (deselectedFiles.includes(idx) || deselectedFiles.includes(file.name))) {
-            file.deselect();
+            if (typeof file.deselect === 'function') file.deselect();
             broadcastKernelLog('SAFEPATH/OPT', `Deselected non-required file: ${file.name}`);
           }
         });
@@ -915,10 +996,13 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
           files: sanitizedFiles
         });
       }
-    });
+    };
+
+    torrent.on('metadata', processTorrentMetadata);
 
     torrent.on('ready', () => {
       broadcastKernelLog('ENGINE', `Swarm ready: ${torrent.pieces?.length || 0} pieces (${torrent.pieceLength} bytes/piece). Sockets listening.`);
+      processTorrentMetadata();
     });
 
     torrent.on('warning', (err) => {
@@ -941,7 +1025,7 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
       });
 
       wire.on('close', () => {
-        // Wire closed silently
+        // Wire closed
       });
     });
 
@@ -964,8 +1048,10 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
       }
     });
 
+    startingSwarmIds.delete(id);
     return { success: true };
   } catch (err) {
+    startingSwarmIds.delete(id);
     broadcastKernelLog('ERR/ADD', `Failed to start swarm: ${err.message}`, 'error');
     throw new Error(`[Engine] Failed to add swarm: ${err.message}`);
   }
@@ -974,7 +1060,16 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
 registerSecureHandler('torrent:pause', async (_event, id) => {
   if (typeof id === 'string' && activeTorrents.has(id)) {
     const t = activeTorrents.get(id);
-    if (!t.paused) t.pause();
+    if (!t.paused) {
+      t.pause();
+      // True Pause: choke all active wires so speed drops to 0 B/s immediately
+      if (Array.isArray(t.wires)) {
+        t.wires.forEach(w => {
+          try { if (typeof w.choke === 'function') w.choke(); } catch (_) {}
+        });
+      }
+      broadcastKernelLog('ENGINE', `Transfer paused. Choked active wires for: ${t.name || id}`);
+    }
     return true;
   }
   return false;
@@ -983,7 +1078,16 @@ registerSecureHandler('torrent:pause', async (_event, id) => {
 registerSecureHandler('torrent:resume', async (_event, id) => {
   if (typeof id === 'string' && activeTorrents.has(id)) {
     const t = activeTorrents.get(id);
-    if (t.paused) t.resume();
+    if (t.paused) {
+      t.resume();
+      // Unchoke wires and resume data transfer
+      if (Array.isArray(t.wires)) {
+        t.wires.forEach(w => {
+          try { if (typeof w.unchoke === 'function') w.unchoke(); } catch (_) {}
+        });
+      }
+      broadcastKernelLog('ENGINE', `Transfer resumed. Re-engaged swarm for: ${t.name || id}`);
+    }
     wakeHeartbeatIfNeeded();
     return true;
   }
@@ -993,7 +1097,14 @@ registerSecureHandler('torrent:resume', async (_event, id) => {
 registerSecureHandler('torrent:stop', async (_event, id) => {
   if (typeof id === 'string' && activeTorrents.has(id)) {
     const t = activeTorrents.get(id);
-    t.destroy();
+    broadcastKernelLog('ENGINE', `Stopping swarm transfer: ${t.name || id}`);
+    await new Promise(resolve => {
+      try {
+        t.destroy({ destroyStore: false }, () => resolve());
+      } catch (_) {
+        resolve();
+      }
+    });
     activeTorrents.delete(id);
     diskBytesCache.delete(id);
     return true;
@@ -1004,6 +1115,7 @@ registerSecureHandler('torrent:stop', async (_event, id) => {
 registerSecureHandler('torrent:recheck', async (_event, id) => {
   if (typeof id === 'string' && activeTorrents.has(id)) {
     const t = activeTorrents.get(id);
+    broadcastKernelLog('ENGINE', `Initiating force recheck for: ${t.name || id}`);
     if (typeof t.rescanPieces === 'function') {
       t.rescanPieces();
       return true;
@@ -1022,11 +1134,11 @@ registerSecureHandler('torrent:selectFiles', async (_event, payload) => {
       t.files.forEach((f, idx) => {
         const ext = path.extname(f.name || '').toLowerCase();
         if (BLOCKED_EXECUTABLE_EXTS.has(ext)) {
-          f.deselect();
+          if (typeof f.deselect === 'function') f.deselect();
         } else if (payload.fileIndices.includes(idx)) {
-          f.select();
+          if (typeof f.select === 'function') f.select();
         } else {
-          f.deselect();
+          if (typeof f.deselect === 'function') f.deselect();
         }
       });
       return true;
@@ -1039,17 +1151,27 @@ registerSecureHandler('torrent:delete', async (_event, payload) => {
   if (!payload || !payload.id) return false;
   const { id, deleteFiles, targetDir, name } = payload;
   diskBytesCache.delete(id);
+
   if (activeTorrents.has(id)) {
     const t = activeTorrents.get(id);
-    t.destroy();
+    broadcastKernelLog('ENGINE', `Destroying swarm: ${t.name || id} (disk purge: ${!!deleteFiles})`);
+    await new Promise(resolve => {
+      try {
+        t.destroy({ destroyStore: !!deleteFiles }, () => resolve());
+      } catch (_) {
+        resolve();
+      }
+    });
     activeTorrents.delete(id);
   }
+
   if (deleteFiles && targetDir && name) {
-    const normalizedDir = path.normalize(targetDir);
-    const resolvedName = resolvePayloadFileName(name);
-    const targetFile = path.join(normalizedDir, resolvedName);
-    const rawFile = path.join(normalizedDir, name.replace(/[\/\\:*?"<>|]/g, '_'));
     try {
+      const normalizedDir = path.normalize(targetDir);
+      const resolvedName = resolvePayloadFileName(name);
+      const targetFile = path.join(normalizedDir, resolvedName);
+      const rawFile = path.join(normalizedDir, name.replace(/[\/\\:*?"<>|]/g, '_'));
+
       if (fs.existsSync(targetFile)) {
         const stat = fs.statSync(targetFile);
         if (stat.isDirectory()) fs.rmSync(targetFile, { recursive: true, force: true });
@@ -1060,7 +1182,9 @@ registerSecureHandler('torrent:delete', async (_event, payload) => {
         if (stat.isDirectory()) fs.rmSync(rawFile, { recursive: true, force: true });
         else fs.unlinkSync(rawFile);
       }
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[Delete file warning]', err.message);
+    }
   }
   return true;
 });

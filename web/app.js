@@ -68,13 +68,20 @@ class HavenMissionControl {
   startRealTorrent(swarm) {
     if (!swarm || !window.havenNative?.startTorrent) return;
 
+    if (!this.startingTorrents) this.startingTorrents = new Set();
+    if (this.startingTorrents.has(swarm.id)) {
+      return;
+    }
+    this.startingTorrents.add(swarm.id);
+
     let source = swarm.source;
     if (!source && swarm.hash) {
       source = `magnet:?xt=urn:btih:${swarm.hash}&dn=${encodeURIComponent(swarm.name)}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce`;
       swarm.source = source;
     }
 
-    if (!source && !swarm.fileBuffer) {
+    if (!source && !swarm.fileBuffer && !swarm.hash) {
+      this.startingTorrents.delete(swarm.id);
       this.appendLog(`[WARN] No source or package data available for: ${swarm.name}`);
       return;
     }
@@ -88,14 +95,17 @@ class HavenMissionControl {
       targetDir: targetDir,
       name: swarm.name,
       fileBuffer: swarm.fileBuffer || null,
-      deselectedFiles: swarm.deselectedFiles || []
+      deselectedFiles: swarm.deselectedFiles || [],
+      sizeBytes: swarm.sizeBytes || 0
     }).then(res => {
+      this.startingTorrents.delete(swarm.id);
       if (res && res.success) {
         this.appendLog(`[ENGINE] Live BitTorrent engine engaged for: ${swarm.name}`);
       } else if (res && res.error) {
         this.appendLog(`[ENGINE ERROR] Failed to start transfer: ${res.error}`);
       }
     }).catch(err => {
+      this.startingTorrents.delete(swarm.id);
       this.appendLog(`[ENGINE ERROR] ${err.message}`);
     });
   }
@@ -242,14 +252,20 @@ class HavenMissionControl {
     });
 
     // Quick Action Bar
-    document.getElementById('btnResumeAll')?.addEventListener('click', () => {
-      this.swarms.forEach(s => {
+    document.getElementById('btnResumeAll')?.addEventListener('click', async () => {
+      for (const s of this.swarms) {
         if (s.state === 'paused') {
-          s.state = 'downloading';
-          s.eta = 'Connecting to peers...';
-          this.startRealTorrent(s);
+          s.state = s.progressPct >= 100 ? 'seeding' : 'downloading';
+          s.eta = s.state === 'seeding' ? 'Seeding' : 'Connecting to peers...';
+          let resumed = false;
+          if (window.havenNative?.resumeTorrent) {
+            resumed = await window.havenNative.resumeTorrent(s.id);
+          }
+          if (!resumed) {
+            this.startRealTorrent(s);
+          }
         }
-      });
+      }
       this.saveSwarms();
       this.render();
       this.appendLog('[ACTION] Resumed all active swarms via WebTorrent engine.');
@@ -275,11 +291,15 @@ class HavenMissionControl {
     document.getElementById('btnPurge')?.addEventListener('click', () => {
       if (this.swarms.length === 0) return;
       if (confirm('Purge completed and inactive transfers from workspace list? (Disk files will not be deleted)')) {
+        const toPurge = this.swarms.filter(s => s.state !== 'downloading');
+        toPurge.forEach(s => {
+          window.havenNative?.stopTorrent(s.id);
+        });
         this.swarms = this.swarms.filter(s => s.state === 'downloading');
         this.selectedId = this.swarms.length > 0 ? this.swarms[0].id : null;
         this.saveSwarms();
         this.render();
-        this.appendLog('[SECURITY] Workspace purged. Active downloads preserved.');
+        this.appendLog(`[SECURITY] Workspace purged (${toPurge.length} transfers removed). Active downloads preserved.`);
       }
     });
 
@@ -397,8 +417,6 @@ class HavenMissionControl {
     this.initAddMagnetModal();
     this.initTargetMountActions();
     this.initSwarmContextMenu();
-    this.initEngineEvents();
-    this.restoreActiveDownloads();
   }
 
   formatSpeed(bytesSec) {
@@ -460,12 +478,18 @@ class HavenMissionControl {
     });
 
     // Resume Action
-    document.getElementById('menuActionResume')?.addEventListener('click', () => {
+    document.getElementById('menuActionResume')?.addEventListener('click', async () => {
       const s = this.contextSwarm;
       if (!s) return;
       s.state = s.progressPct >= 100 ? 'seeding' : 'downloading';
       s.eta = s.state === 'seeding' ? 'Seeding' : 'Connecting to peers...';
-      this.startRealTorrent(s);
+      let resumed = false;
+      if (window.havenNative?.resumeTorrent) {
+        resumed = await window.havenNative.resumeTorrent(s.id);
+      }
+      if (!resumed) {
+        this.startRealTorrent(s);
+      }
       this.appendLog(`[SWARM] Resumed real transfer: ${s.name}`);
       menu?.classList.add('hidden');
       this.saveSwarms();
@@ -1583,15 +1607,16 @@ class HavenMissionControl {
 
     // Col 1: SafePath Manifest
     document.getElementById('mountTarget').textContent = s.targetMount || this.downloadDir;
-    document.getElementById('mountFree').innerHTML = `${s.freeVolume || '382.4 GB'} <small class="text-muted">${s.volumeType || 'Disk'}</small>`;
+    const mf = document.getElementById('mountFree');
+    if (mf) mf.innerHTML = `${s.freeVolume || 'Calculating...'} <small class="text-muted">${s.volumeType || 'Disk'}</small>`;
 
     if (window.havenNative?.getVolumeInfo && s.targetMount) {
       window.havenNative.getVolumeInfo(s.targetMount).then(info => {
-        if (info && info.freeGB) {
-          s.freeVolume = `${info.freeGB} GB`;
+        if (info && (info.freeGB || info.freeFormatted)) {
+          const displayFree = info.freeFormatted || `${info.freeGB} GB`;
+          s.freeVolume = `${displayFree} FREE`;
           s.volumeType = info.drive || 'Disk';
-          const mf = document.getElementById('mountFree');
-          if (mf) mf.innerHTML = `${info.freeGB} GB <small class="text-muted">${info.drive || 'Disk'}</small>`;
+          if (mf) mf.innerHTML = `${s.freeVolume} <small class="text-muted">${s.volumeType}</small>`;
         }
       }).catch(() => {});
     }
@@ -2187,7 +2212,18 @@ class HavenMissionControl {
       this.selectedId = this.swarms.length > 0 ? this.swarms[0].id : null;
     }
 
-    if (deleteFiles && swarm && window.havenNative?.deletePayloadFile) {
+    if (window.havenNative?.deleteTorrent) {
+      window.havenNative.deleteTorrent({
+        id,
+        deleteFiles,
+        targetDir: swarm?.targetMount || this.downloadDir,
+        name: swarm?.name || ''
+      }).then(ok => {
+        if (deleteFiles && ok) {
+          this.appendLog(`[DISK] Permanently removed file payload from ${swarm?.targetMount || this.downloadDir}`);
+        }
+      });
+    } else if (deleteFiles && swarm && window.havenNative?.deletePayloadFile) {
       window.havenNative.deletePayloadFile({
         targetDir: swarm.targetMount || this.downloadDir,
         fileName: swarm.name
