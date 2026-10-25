@@ -276,8 +276,17 @@ namespace HavenInstaller
                 }
                 else
                 {
-                    // Copy from directory if running in local source dist
+                    // Check local source directory in current folder or adjacent folders
                     string sourceDir = Path.Combine(currentDir, "Haven-win32-x64");
+                    if (!Directory.Exists(sourceDir))
+                    {
+                        sourceDir = Path.Combine(currentDir, "..", "desktop", "dist", "Haven-win32-x64");
+                    }
+                    if (!Directory.Exists(sourceDir))
+                    {
+                        sourceDir = Path.Combine(currentDir, "dist", "Haven-win32-x64");
+                    }
+
                     if (Directory.Exists(sourceDir))
                     {
                         SetStatus("Copying application binaries...", 20);
@@ -285,7 +294,16 @@ namespace HavenInstaller
                     }
                     else
                     {
-                        throw new FileNotFoundException("Haven application payload was not found. Please re-download Haven-Setup.exe.");
+                        // Download release package from official GitHub release
+                        SetStatus("Connecting to release repository...", 15);
+                        string tempZip = Path.Combine(Path.GetTempPath(), "Haven-Payload-Download.zip");
+                        DownloadPayloadWithProgress("https://github.com/AbeeshSengottuvel/Torrent/releases/download/v1.0.0/Haven-1.0.0-win-x64-portable.zip", tempZip);
+                        SetStatus("Extracting downloaded Haven package...", 75);
+                        using (FileStream fs = File.OpenRead(tempZip))
+                        {
+                            ExtractZipStream(fs);
+                        }
+                        try { File.Delete(tempZip); } catch { }
                     }
                 }
 
@@ -354,6 +372,47 @@ namespace HavenInstaller
                     MessageBox.Show(this, "Installation encountered an issue:\n\n" + ex.Message, "Haven Setup", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     this.Close();
                 }));
+            }
+        }
+
+        private void DownloadPayloadWithProgress(string url, string destPath)
+        {
+            using (System.Net.WebClient wc = new System.Net.WebClient())
+            {
+                System.Net.ServicePointManager.SecurityProtocol = (System.Net.SecurityProtocolType)3072;
+                wc.Headers.Add("User-Agent", "Haven-Installer/1.0.0");
+
+                AutoResetEvent done = new AutoResetEvent(false);
+                Exception dlError = null;
+
+                wc.DownloadProgressChanged += (s, e) =>
+                {
+                    int pct = 15 + (int)((e.ProgressPercentage / 100f) * 60);
+                    double receivedMb = e.BytesReceived / (1024.0 * 1024.0);
+                    double totalMb = e.TotalBytesToReceive / (1024.0 * 1024.0);
+                    if (totalMb > 0)
+                    {
+                        SetStatus(string.Format("Downloading Haven ({0:0.0} / {1:0.0} MB)...", receivedMb, totalMb), pct);
+                    }
+                    else
+                    {
+                        SetStatus(string.Format("Downloading Haven ({0:0.0} MB)...", receivedMb), pct);
+                    }
+                };
+
+                wc.DownloadFileCompleted += (s, e) =>
+                {
+                    if (e.Error != null) dlError = e.Error;
+                    done.Set();
+                };
+
+                wc.DownloadFileAsync(new Uri(url), destPath);
+                done.WaitOne();
+
+                if (dlError != null)
+                {
+                    throw new Exception("Unable to download Haven package automatically: " + dlError.Message + "\n\nYou can also download Haven-1.0.0-win-x64-portable.zip or run Haven-Setup.bat.");
+                }
             }
         }
 
@@ -804,6 +863,8 @@ namespace HavenInstaller
                     string currentDir = AppDomain.CurrentDomain.BaseDirectory;
                     string payloadZip = Path.Combine(currentDir, "Haven-1.0.0-win-x64-portable.zip");
                     if (!File.Exists(payloadZip)) payloadZip = Path.Combine(currentDir, "payload.zip");
+                    if (!File.Exists(payloadZip)) payloadZip = Path.Combine(currentDir, "..", "..", "desktop", "dist", "Haven-1.0.0-win-x64-portable.zip");
+                    if (!File.Exists(payloadZip)) payloadZip = Path.Combine(currentDir, "..", "desktop", "dist", "Haven-1.0.0-win-x64-portable.zip");
 
                     if (File.Exists(payloadZip))
                     {
@@ -815,6 +876,25 @@ namespace HavenInstaller
                                 string destDir = Path.GetDirectoryName(destPath);
                                 if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir)) Directory.CreateDirectory(destDir);
                                 if (!string.IsNullOrEmpty(entry.Name)) entry.ExtractToFile(destPath, true);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        string sourceDir = Path.Combine(currentDir, "Haven-win32-x64");
+                        if (!Directory.Exists(sourceDir)) sourceDir = Path.Combine(currentDir, "..", "..", "desktop", "dist", "Haven-win32-x64");
+                        if (!Directory.Exists(sourceDir)) sourceDir = Path.Combine(currentDir, "..", "desktop", "dist", "Haven-win32-x64");
+                        if (Directory.Exists(sourceDir))
+                        {
+                            foreach (string dir in Directory.GetDirectories(sourceDir, "*", SearchOption.AllDirectories))
+                            {
+                                string rel = dir.Substring(sourceDir.Length).TrimStart(Path.DirectorySeparatorChar);
+                                Directory.CreateDirectory(Path.Combine(installDir, rel));
+                            }
+                            foreach (string file in Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
+                            {
+                                string rel = file.Substring(sourceDir.Length).TrimStart(Path.DirectorySeparatorChar);
+                                File.Copy(file, Path.Combine(installDir, rel), true);
                             }
                         }
                     }

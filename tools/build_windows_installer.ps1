@@ -43,26 +43,45 @@ Compress-Archive -Path "$appDir\*" -DestinationPath $portableZip -CompressionLev
 $zipMb = [Math]::Round((Get-Item $portableZip).Length / 1MB, 2)
 Write-Host "  -> $portableZip ($zipMb MB)"
 
-# 3. Compile Standalone Self-Contained Installer with Embedded Payload
-Write-Host "[4/4] Compiling Standalone 1-Click Installer (Haven-Setup-1.0.0-x64.exe)..."
-$resArg = "/resource:$($portableZip),HavenPayload"
-& $csc /target:winexe /out:$installerExe /platform:x64 /win32icon:$iconIco $resArg /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll $installerSrc
+# 3. Compile Real Lightweight 1-Click Installer (Haven-Setup.exe - True Binary, No Git LFS)
+Write-Host "[4/5] Compiling True-Binary 1-Click Installer (Haven-Setup.exe)..."
+& $csc /target:winexe /out:$installerExe /platform:x64 /win32icon:$iconIco /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll $installerSrc
 Copy-Item -Path $installerExe -Destination $installerShortExe -Force
-$setupMb = [Math]::Round((Get-Item $installerExe).Length / 1MB, 2)
-Write-Host "  -> $installerExe ($setupMb MB, Standalone Embedded)"
 
-# 4. Generate Cryptographic SHA256 Checksums
+# Copy real executable to site/downloads for direct distribution without Git LFS corruption
+$siteDownloads = Join-Path $root "site\downloads"
+if (Test-Path $siteDownloads) {
+    Copy-Item -Path $installerExe -Destination (Join-Path $siteDownloads "Haven-Setup.exe") -Force
+    Copy-Item -Path $installerExe -Destination (Join-Path $siteDownloads "Haven-Setup-1.0.0-x64.exe") -Force
+}
+$setupKb = [Math]::Round((Get-Item $installerExe).Length / 1KB, 1)
+Write-Host "  -> $installerExe ($setupKb KB, True Binary Executable)"
+
+# 4. Compile Standalone Mega-Installer (with Embedded Payload) for Offline Releases
+Write-Host "[5/5] Compiling Standalone Mega-Installer (Haven-Setup-Standalone.exe)..."
+$standaloneExe = Join-Path $dist "Haven-Setup-Standalone.exe"
+$resArg = "/resource:$($portableZip),HavenPayload"
+& $csc /target:winexe /out:$standaloneExe /platform:x64 /win32icon:$iconIco $resArg /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll $installerSrc
+$standaloneMb = [Math]::Round((Get-Item $standaloneExe).Length / 1MB, 2)
+Write-Host "  -> $standaloneExe ($standaloneMb MB, Standalone Embedded)"
+
+# 5. Generate Cryptographic SHA256 Checksums
 $portableHash = (Get-FileHash -Algorithm SHA256 $portableZip).Hash.ToLower()
 $installerHash = (Get-FileHash -Algorithm SHA256 $installerExe).Hash.ToLower()
 $uninstallerHash = (Get-FileHash -Algorithm SHA256 $uninstallerDistExe).Hash.ToLower()
+$standaloneHash = (Get-FileHash -Algorithm SHA256 $standaloneExe).Hash.ToLower()
 
 $sumsPath = Join-Path $dist "SHA256SUMS.txt"
 @"
-$installerHash  Haven-Setup-1.0.0-x64.exe
 $installerHash  Haven-Setup.exe
+$installerHash  Haven-Setup-1.0.0-x64.exe
+$standaloneHash  Haven-Setup-Standalone.exe
 $portableHash  Haven-1.0.0-win-x64-portable.zip
 $uninstallerHash  Haven-Uninstall.exe
 "@ | Set-Content -Path $sumsPath -Encoding utf8
+if (Test-Path $siteDownloads) {
+    Copy-Item -Path $sumsPath -Destination (Join-Path $siteDownloads "SHA256SUMS.txt") -Force
+}
 
 Write-Host ""
 Write-Host "=========================================================="
