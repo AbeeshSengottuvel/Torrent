@@ -19,8 +19,9 @@ Thumbs.db
 .vscode/
 *.iml
 
-# Large release archives (exceed GitHub 100MB limit, distributed via GitHub Releases)
+# Large release archives & installers (exceed GitHub 100MB limit, distributed via GitHub Releases)
 site/downloads/*.zip
+site/downloads/*.exe
 *.zip
 
 # Runtime debug logs
