@@ -156,6 +156,32 @@ const nativeBridge = {
     return ipcRenderer.invoke('torrent:releaseQuarantine', id);
   },
 
+  // Context Menu & Swarm Operations
+  forceStartTorrent: (id) => {
+    if (!isNonEmptyString(id)) return Promise.resolve(false);
+    return ipcRenderer.invoke('torrent:forceStart', id);
+  },
+
+  setSequentialStream: (payload) => {
+    if (!payload || !isNonEmptyString(payload.id)) return Promise.resolve(false);
+    return ipcRenderer.invoke('torrent:setSequential', payload);
+  },
+
+  changeSaveVault: (id) => {
+    if (!isNonEmptyString(id)) return Promise.resolve(null);
+    return ipcRenderer.invoke('torrent:changeSaveVault', id);
+  },
+
+  setTorrentPriority: (payload) => {
+    if (!payload || !isNonEmptyString(payload.id)) return Promise.resolve(false);
+    return ipcRenderer.invoke('torrent:setPriority', payload);
+  },
+
+  refreshTrackers: (id) => {
+    if (!isNonEmptyString(id)) return Promise.resolve(false);
+    return ipcRenderer.invoke('torrent:refreshTrackers', id);
+  },
+
   // Window Controls
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
   maximizeWindow: () => ipcRenderer.invoke('window:maximize'),
@@ -170,8 +196,14 @@ const nativeBridge = {
   },
   getZoomFactor: () => webFrame.getZoomFactor(),
 
-  // Update Checks
-  checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
+  // Settings & OS Integration
+  loadConfig: () => ipcRenderer.invoke('config:load'),
+  saveConfig: (cfg) => {
+    if (!cfg || typeof cfg !== 'object') return Promise.reject(new Error('[Config] Invalid configuration object.'));
+    return ipcRenderer.invoke('config:save', cfg);
+  },
+  clearCache: () => ipcRenderer.invoke('system:clearCache'),
+  getHardwareStats: () => ipcRenderer.invoke('system:getHardwareStats'),
 
   // Teardown-Safe Event Streams
   onTorrentStatusBatch: (callback) => createSafeListener('torrent:statusBatch', callback),

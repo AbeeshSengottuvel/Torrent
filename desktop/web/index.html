@@ -3,796 +3,1728 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HAVEN // 1.0 [v1.0.4-SEC] - Mission Control</title>
+  <title>Haven — Alpine Torrent</title>
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; font-src 'self';">
-  <meta name="theme-color" content="#ffffff">
+  <meta name="theme-color" content="#f8f9fa">
   <link rel="icon" type="image/png" href="icon.png">
   <link rel="stylesheet" href="style.css">
 </head>
-<body class="mission-control-body">
+<body class="alpine-theme theme-alpine-mist">
 
-  <!-- TOP APPLICATION BAR -->
-  <header class="app-header">
-    <div class="header-left">
-      <div class="app-brand-mark">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-          <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-          <polyline points="2 17 12 22 22 17" fill="none" stroke="currentColor" stroke-width="2.5"></polyline>
-          <polyline points="2 12 12 17 22 12" fill="none" stroke="currentColor" stroke-width="2.5"></polyline>
-        </svg>
-      </div>
-      <span class="app-title">HAVEN</span>
-    </div>
+  <!-- MAIN APP SHELL -->
+  <div class="haven-shell">
 
-    <div class="header-center">
-      <div class="uri-input-group">
-        <span class="uri-icon">🔗</span>
-        <input type="text" id="uriInput" placeholder="Enter Magnet URI, .torrent path..." autocomplete="off" spellcheck="false">
-      </div>
-      <button class="btn-ctrl btn-inspect" id="btnInspect">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-        <span>[INSPECT]</span>
-      </button>
-      <button class="btn-ctrl btn-load" id="btnOpenAddModal" title="Add Magnet URI & Configure Upload (Ctrl + M)">
-        <span>🧲 [+ ADD MAGNET]</span>
-      </button>
-      <button class="btn-ctrl btn-load-pkg" id="btnOpenPackageModal" title="Load .torrent Package File & Choose Destination">
-        <span>📦 [+ LOAD PACKAGE]</span>
-      </button>
-
-      <div class="badge-netguard-lock" id="chipNetguard">
-        <span class="status-square">■</span>
-        <span>[WG0: LOCKED]</span>
-      </div>
-
-      <div class="throughput-pill">
-        <span class="speed-down">↓ <span id="topSpeedDown">0.0 MB/s</span></span>
-        <span class="speed-divider">|</span>
-        <span class="speed-up">↑ <span id="topSpeedUp">0.0 MB/s</span></span>
-      </div>
-    </div>
-
-    <div class="header-right">
-      <button class="icon-control" id="btnThrottle" title="Bandwidth Governor">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
-      </button>
-      <button class="icon-control" id="btnSecurityMode" title="Zero-Trust Identity">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-      </button>
-      <div class="window-controls">
-        <button class="win-btn" id="winMin" title="Minimize">—</button>
-        <button class="win-btn" id="winMax" title="Maximize">▢</button>
-        <button class="win-btn win-close" id="winClose" title="Close">✕</button>
-      </div>
-    </div>
-  </header>
-
-  <!-- SUB-HEADER / QUICK ACTION & SWARM POLICY BAR -->
-  <div class="sub-header">
-    <div class="sub-left">
-      <button class="action-btn action-add-swarm" id="btnSubAddSwarm" title="Ingest New Swarm or Magnet Link">
-        <span>+</span> [ADD SWARM]
-      </button>
-      <button class="action-btn" id="btnResumeAll">
-        <span>▷</span> [RESUME ALL]
-      </button>
-      <button class="action-btn" id="btnPauseAll">
-        <span>⏸</span> [PAUSE ALL]
-      </button>
-      <button class="action-btn action-delete" id="btnDeleteSelected" title="Delete selected swarm (Del)">
-        <span>✕</span> [DELETE]
-      </button>
-      <button class="action-btn action-purge" id="btnPurge" title="Purge finished downloads">
-        <span>🗑</span> [PURGE]
-      </button>
-
-      <div class="policy-chip">
-        <span class="policy-label">SWARM POLICY:</span>
-        <span class="policy-value">ZERO-TRUST / ISOLATED</span>
-      </div>
-
-      <div class="policy-chip">
-        <span class="square-indicator">■</span>
-        <span class="policy-label">ENCRYPTION:</span>
-        <span class="policy-value font-mono">STRICT</span>
-      </div>
-
-      <div class="policy-chip">
-        <span class="policy-label">PEERS ACTIVE:</span>
-        <span class="policy-value font-mono" id="valActivePeers">0</span>
-      </div>
-    </div>
-
-    <div class="sub-right">
-      <div class="filter-box">
-        <span class="filter-tag">FILTER</span>
-        <input type="text" id="searchInput" placeholder="Search hash, ISO..." autocomplete="off">
-      </div>
-    </div>
-  </div>
-
-  <!-- WORKSPACE BODY -->
-  <div class="workspace-layout">
-    
     <!-- LEFT SIDEBAR -->
-    <aside class="sidebar-panel">
-      <div class="sidebar-section">
-        <div class="section-title">TRANSFERS</div>
-        <nav class="nav-list">
-          <button class="nav-item active" data-filter="all">
-            <span class="nav-icon">📋</span>
-            <span class="nav-text">All Swarms</span>
-            <span class="nav-count" id="countAll">0</span>
-          </button>
-          <button class="nav-item" data-filter="downloading">
-            <span class="nav-icon">⬇</span>
-            <span class="nav-text">Downloading</span>
-            <span class="nav-count" id="countDownloading">0</span>
-          </button>
-          <button class="nav-item" data-filter="seeding">
-            <span class="nav-icon">⬆</span>
-            <span class="nav-text">Seeding</span>
-            <span class="nav-count" id="countSeeding">0</span>
-          </button>
-          <button class="nav-item" data-filter="completed">
-            <span class="nav-icon">✓</span>
-            <span class="nav-text">Completed</span>
-            <span class="nav-count" id="countCompleted">0</span>
-          </button>
-          <button class="nav-item nav-quarantine" data-filter="quarantined">
-            <span class="nav-icon">🛡</span>
-            <span class="nav-text">Quarantined</span>
-            <span class="nav-count count-red" id="countQuarantined">0</span>
-          </button>
-        </nav>
-      </div>
-
-      <div class="sidebar-section">
-        <div class="section-title">DIAGNOSTICS</div>
-          <button class="nav-item" id="navPeerGraph">
-            <span class="nav-icon">🕸</span>
-            <span class="nav-text">Peer Graph</span>
-            <span class="nav-badge-pill" id="badgePeerGraph">MESH</span>
-          </button>
-          <button class="nav-item" id="navThrottle">
-            <span class="nav-icon">📶</span>
-            <span class="nav-text">Traffic Throttle</span>
-            <span class="throttle-badge font-mono" id="sidebarThrottleBadge">UNLIMITED</span>
-          </button>
-        </nav>
-      </div>
-
-      <!-- HARDWARE NET-GUARD LOCK CARD -->
-      <div class="netguard-hw-card">
-        <div class="hw-header">
-          <span class="hw-title">NET-GUARD HW</span>
-          <span class="hw-status-dot">■</span>
+    <aside class="haven-sidebar">
+      <!-- Brand / Logo -->
+      <div class="sidebar-brand">
+        <div class="brand-squircle">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 3 3 17 9 17 6 22 18 10 13 10 21 3 12 3" fill="#ffffff" stroke="none"/>
+          </svg>
         </div>
-        <div class="hw-rows">
-          <div class="hw-row">
-            <span class="hw-label">INTF:</span>
-            <span class="hw-val-box">wg0-tap</span>
-          </div>
-          <div class="hw-row">
-            <span class="hw-label">DNS:</span>
-            <span class="hw-val-mono">127.0.0.1:53</span>
-          </div>
-          <div class="hw-row">
-            <span class="hw-label">LEAK-PROT:</span>
-            <span class="hw-badge-enforced">ENFORCED</span>
-          </div>
+        <div class="brand-text-block">
+          <h1 class="brand-title">Haven</h1>
+          <span class="brand-subtitle" id="brandVersionLabel" title="Click 5 times rapidly for Developer Mode">Haven v1.4 Alpine Core</span>
+        </div>
+      </div>
+
+      <!-- Navigation Menu -->
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-filter="all" id="navAllTransfers">
+          <span class="nav-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2 6c3-3 5-3 8 0s5 3 8 0 5-3 8 0"></path>
+              <path d="M2 12c3-3 5-3 8 0s5 3 8 0 5-3 8 0"></path>
+              <path d="M2 18c3-3 5-3 8 0s5 3 8 0 5-3 8 0"></path>
+            </svg>
+          </span>
+          <span class="nav-label">All Transfers</span>
+        </button>
+
+        <button class="nav-item" data-filter="downloading" id="navDownloading">
+          <span class="nav-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <polyline points="19 12 12 19 5 12"></polyline>
+            </svg>
+          </span>
+          <span class="nav-label">Downloading</span>
+        </button>
+
+        <button class="nav-item" data-filter="seeding" id="navSeeding">
+          <span class="nav-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="19" x2="12" y2="5"></line>
+              <polyline points="5 12 12 5 19 12"></polyline>
+            </svg>
+          </span>
+          <span class="nav-label">Seeding</span>
+        </button>
+
+        <button class="nav-item" data-filter="completed" id="navCompleted">
+          <span class="nav-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="9 12 11 14 15 10"></polyline>
+            </svg>
+          </span>
+          <span class="nav-label">Completed</span>
+        </button>
+      </nav>
+
+      <!-- Sidebar Footer -->
+      <div class="sidebar-footer">
+        <div class="speed-pill-widget" id="sidebarSpeedWidget" title="Live Global Throughput">
+          <span class="speed-metric speed-down">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+            <span id="sidebarSessionDown">0.0 MB/s</span>
+          </span>
+          <span class="speed-metric speed-up">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+            <span id="sidebarSessionUp">0.0 MB/s</span>
+          </span>
+        </div>
+
+        <div class="sidebar-settings-row">
+          <button class="btn-sidebar-settings" id="btnOpenSettingsBottom" title="Open Settings Studio">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            <span>Settings</span>
+          </button>
+          <button class="btn-sidebar-netstatus" id="btnNetguardIndicator" title="Network Guard (VPN Kill-Switch: Active)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M5 12.55a11 11 0 0 1 14.08 0"></path>
+              <path d="M1.42 9a16 16 0 0 1 21.16 0"></path>
+              <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+              <line x1="12" y1="20" x2="12.01" y2="20"></line>
+            </svg>
+          </button>
         </div>
       </div>
     </aside>
 
-    <!-- CENTER MAIN VIEW -->
-    <main class="main-content">
+    <!-- RIGHT MAIN WORKSPACE -->
+    <main class="haven-main">
       
-      <!-- TOP HALF: MASTER SWARM diagnostics TABLE -->
-      <section class="table-section">
-        <!-- QUARANTINE SECURITY BANNER (SAFEPATH ACTIVE ISOLATION) -->
-        <div id="quarantineBanner" class="quarantine-banner hidden">
-          <div class="q-banner-left">
-            <div class="q-banner-shield">🛡</div>
-            <div class="q-banner-info">
-              <div class="q-banner-title font-mono" id="qBannerTitle">SAFEPATH ACTIVE ISOLATION // 0 SWARMS QUARANTINED</div>
-              <div class="q-banner-desc" id="qBannerDesc">
-                Zero-Trust SafePath detected dangerous binary payloads or quarantined swarm. Disk writes blocked to protect host system.
+      <!-- =====================================================================
+           VIEW 1: TRANSFERS DASHBOARD
+           ===================================================================== -->
+      <div id="transfersView" class="view-panel active">
+        <!-- TOP ACTION BAR -->
+        <header class="main-topbar">
+          <div class="topbar-left">
+            <button class="btn-add-torrent" id="btnOpenAddModal">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              <span>Add Torrent</span>
+            </button>
+
+            <!-- Sandbox Mock Data Active Indicator Pill -->
+            <div id="sandboxActiveBadge" class="sandbox-mock-badge hidden" title="Developer Sandbox Mode Active">
+              <span class="sandbox-pulse-dot">●</span>
+              <span class="sandbox-badge-text">SANDBOX MOCK DATA ACTIVE</span>
+              <button id="btnExitSandbox" class="btn-exit-sandbox" title="Exit Sandbox & Strip All Mock Data">1-Click Exit</button>
+            </div>
+          </div>
+
+          <div class="topbar-right">
+            <div class="search-sanctuary-box">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input type="text" id="searchInput" placeholder="Search sanctuary..." autocomplete="off" spellcheck="false">
+            </div>
+
+            <button class="user-avatar-btn" id="btnSecurityMode" title="Zero-Trust Identity">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
+            </button>
+
+            <!-- Desktop window controls -->
+            <div class="window-controls-group">
+              <button class="win-btn" id="winMin" title="Minimize">—</button>
+              <button class="win-btn" id="winMax" title="Maximize">▢</button>
+              <button class="win-btn win-close" id="winClose" title="Close">✕</button>
+            </div>
+          </div>
+        </header>
+
+        <!-- SCROLLABLE WORKSPACE CONTAINER -->
+        <div class="workspace-scroll-area">
+
+          <!-- TITLE & FILTER ROW -->
+          <section class="transfers-title-section">
+            <div class="title-left">
+              <div class="heading-row">
+                <h2 class="section-title">All Transfers</h2>
+                <span class="items-count-badge" id="activeCountBadge">6 active items</span>
               </div>
+              <p class="section-subtitle">Tranquil peer network • Synchronized with Alpine relay nodes</p>
             </div>
-          </div>
-          <div class="q-banner-actions">
-            <button class="btn-ctrl btn-q-purge" id="btnPurgeQuarantined" title="Permanently delete all quarantined swarms and remove from session">
-              <span>🗑</span> [PURGE & DELETE]
-            </button>
-            <button class="btn-ctrl btn-q-release" id="btnReleaseQuarantined" title="Trust and release selected quarantined swarm to resume downloads">
-              <span>🔓</span> [TRUST & RELEASE TO DOWNLOAD]
-            </button>
-          </div>
-        </div>
 
-        <div class="table-scroll-container">
-          <table class="swarms-table" id="swarmsTable">
-            <thead>
-              <tr>
-                <th class="col-num">#</th>
-                <th class="col-name">PAYLOAD / TORRENT NAME</th>
-                <th class="col-size">SIZE</th>
-                <th class="col-progress">PROGRESS</th>
-                <th class="col-status">SECURITY STATUS</th>
-                <th class="col-speed">DOWN / UP</th>
-                <th class="col-peers">PEERS</th>
-                <th class="col-eta">ETA</th>
-                <th class="col-act text-center">ACT</th>
-              </tr>
-            </thead>
-            <tbody id="swarmsTableBody">
-              <!-- Rendered dynamically -->
-            </tbody>
-          </table>
-        </div>
-      </section>
+            <div class="title-right">
+              <!-- Filter Tabs -->
+              <div class="filter-segmented-pill">
+                <button class="filter-pill-btn active" data-filter="all">All</button>
+                <button class="filter-pill-btn" data-filter="downloading">Active</button>
+                <button class="filter-pill-btn" data-filter="seeding">Seeding</button>
+                <button class="filter-pill-btn" data-filter="completed">Finished</button>
+              </div>
 
-      <!-- BOTTOM HALF: 3-COLUMN PRE-FLIGHT & diagnostics WORKSPACE -->
-      <section class="diagnostics-workspace">
-        
-        <!-- COLUMN 1: SAFEPATH GATE // FILE MANIFEST -->
-        <div class="diagnostics-column col-safepath">
-          <div class="col-header">
-            <div class="header-tag">
-              <span class="header-icon">🛡</span>
-              <span class="header-title">SAFEPATH GATE // FILE MANIFEST</span>
+              <!-- Flow Control Button -->
+              <button class="btn-flow-control" id="btnThrottle" title="Bandwidth & QoS Flow Control">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="4" y1="21" x2="4" y2="14"></line>
+                  <line x1="4" y1="10" x2="4" y2="3"></line>
+                  <line x1="12" y1="21" x2="12" y2="12"></line>
+                  <line x1="12" y1="8" x2="12" y2="3"></line>
+                  <line x1="20" y1="21" x2="20" y2="16"></line>
+                  <line x1="20" y1="12" x2="20" y2="3"></line>
+                  <line x1="1" y1="14" x2="7" y2="14"></line>
+                  <line x1="9" y1="8" x2="15" y2="8"></line>
+                  <line x1="17" y1="16" x2="23" y2="16"></line>
+                </svg>
+                <span>Flow Control</span>
+              </button>
             </div>
-            <span class="badge-tag">SHA-256 VERIFIED</span>
-          </div>
+          </section>
 
-          <div class="mount-row">
-            <div class="mount-item">
-              <span class="meta-label">TARGET MOUNT</span>
-              <div class="mount-val-group">
-                <span class="meta-val font-mono" id="mountTarget">C:\Users\Abeesh\Downloads\Haven</span>
-                <button class="btn-sm-action" id="btnOpenTargetFolder" title="Open Download Folder in File Explorer">
-                  <span>📂 [OPEN FOLDER]</span>
+          <!-- CARDS LIST -->
+          <section class="transfers-cards-container" id="transfersListContainer">
+            <!-- Rendered dynamically by app.js -->
+          </section>
+
+          <!-- BOTTOM INSPECTOR PANEL -->
+          <section class="inspector-card" id="inspectorCard">
+            <div class="inspector-header">
+              <div class="inspector-title-left">
+                <span class="status-dot-active"></span>
+                <h3 class="inspector-target-name" id="inspectorTargetName">No Transfer Selected</h3>
+                <span class="inspector-tag-label">Inspector</span>
+              </div>
+
+              <div class="inspector-tabs-group">
+                <button class="inspector-tab-btn" id="btnTabFiles">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                  </svg>
+                  <span>Files</span>
+                </button>
+                <button class="inspector-tab-btn active" id="btnTabSpeed">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                  </svg>
+                  <span>Speed</span>
                 </button>
               </div>
             </div>
-            <div class="mount-item">
-              <span class="meta-label">FREE VOLUME</span>
-              <span class="meta-val font-mono" id="mountFree">382.4 GB <small class="text-muted">NVMe</small></span>
+
+            <!-- Tab Content: Speed -->
+            <div class="inspector-body" id="inspectorSpeedView">
+              <div class="speed-dynamics-header">
+                <div class="dynamics-label-block">
+                  <span class="sub-dynamics-label">FLOW DYNAMICS (LAST 60 SECONDS)</span>
+                  <div class="speed-readout-row">
+                    <span class="current-speed-big" id="inspectorCurrentSpeed">0.0 KB/s</span>
+                    <span class="peak-speed-sub" id="inspectorPeakSpeed">Peak 0.0 KB/s</span>
+                  </div>
+                </div>
+
+                <div class="graph-legend">
+                  <span class="legend-item legend-inflow">
+                    <span class="legend-line solid-green"></span>
+                    Inflow Stream
+                  </span>
+                  <span class="legend-item legend-outflow">
+                    <span class="legend-line dashed-slate"></span>
+                    Outflow Stream
+                  </span>
+                </div>
+              </div>
+
+              <!-- Area Spline Canvas Chart -->
+              <div class="chart-canvas-wrapper">
+                <canvas id="flowCanvas" width="900" height="180"></canvas>
+              </div>
+
+              <!-- Timeline Marks -->
+              <div class="chart-timeline-axis">
+                <span>60s ago</span>
+                <span>45s</span>
+                <span>30s</span>
+                <span>15s</span>
+                <span>Present Moment</span>
+              </div>
             </div>
-            <button class="btn-start-dl" id="btnStartDownload">
-              <span>[⬇ START DOWNLOAD]</span>
+
+            <!-- Tab Content: Files (hidden by default) -->
+            <div class="inspector-body hidden" id="inspectorFilesView">
+              <div class="files-manifest-header">
+                <span class="files-manifest-title">SAFE-PATH CANONICAL MANIFEST (<span id="manifestFilesCount">1</span> Files)</span>
+                <span class="files-manifest-size" id="manifestTotalSize">0.0 MB</span>
+              </div>
+              <div class="files-manifest-scroll" id="filesManifestList">
+                <!-- Rendered dynamically -->
+              </div>
+            </div>
+          </section>
+
+        </div>
+      </div>
+
+      <!-- =====================================================================
+           VIEW 3: DEEP INSPECT STUDIO (MATCHING USER SCREENSHOT)
+           ===================================================================== -->
+      <!-- =====================================================================
+           VIEW 3: DEEP INSPECT STUDIO (ALPINE MIST AESTHETIC - SINGLE SCREEN)
+           ===================================================================== -->
+      <div id="inspectView" class="view-panel hidden">
+        <!-- Deep Inspect Top Bar (48px) -->
+        <header class="inspect-topbar">
+          <div class="inspect-topbar-left">
+            <button class="btn-inspect-back" id="btnBackFromInspect">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12"></line>
+                <polyline points="12 19 5 12 12 5"></polyline>
+              </svg>
+              <span>All Transfers</span>
             </button>
+            <div class="inspect-topbar-divider"></div>
+            <h2 class="inspect-name" id="inspectTorrentName">No Transfer Selected</h2>
+            <span class="inspect-status-pill" id="inspectStatusBadge">● Standby</span>
           </div>
 
-          <div class="manifest-table-wrap">
-            <table class="manifest-table">
-              <thead>
-                <tr>
-                  <th class="col-chk">SEL</th>
-                  <th>FILE NAME</th>
-                  <th>CANONICAL PATH</th>
-                  <th class="text-right">SIZE</th>
-                  <th class="text-center">VERDICT</th>
-                </tr>
-              </thead>
-              <tbody id="manifestTableBody">
-                <!-- Rendered dynamically -->
-              </tbody>
-            </table>
-          </div>
+          <div class="inspect-topbar-right">
+            <button class="btn-inspect-pill" id="btnInspectFolder" title="Open containing folder">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+              <span>Open Folder</span>
+            </button>
+            <button class="btn-inspect-pill" id="btnInspectVerify" title="Verify cryptographic chunk hashes">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><polyline points="9 12 11 14 15 10"></polyline></svg>
+              <span>Verify Data</span>
+            </button>
+            <button class="btn-inspect-primary" id="btnInspectPause">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+              <span id="inspectPauseText">Pause Transfer</span>
+            </button>
 
-          <!-- QUARANTINE WARNING BOX -->
-          <div class="quarantine-box" id="quarantineAlertBox">
-            <div class="q-header">
-              <span class="q-icon">⚠</span>
-              <span class="q-title" id="quarantineTitle">QUARANTINE ACTIVE // AUTOEXEC.BAT</span>
-            </div>
-            <p class="q-desc" id="quarantineDesc">
-              Auto-quarantined. Executable payload isolated from write stream. SafePath will bypass file during disk flush.
-            </p>
-          </div>
-        </div>
-
-        <!-- COLUMN 2: SWARM diagnostics & MESH GRAPH -->
-        <div class="diagnostics-column col-mesh" id="panelColMesh">
-          <div class="col-header">
-            <div class="header-tag">
-              <span class="header-icon">📈</span>
-              <span class="header-title" id="meshViewTitle">SWARM DIAGNOSTICS & MESH GRAPH</span>
-            </div>
-            <div class="mesh-header-tools">
-              <button class="tab-view-btn" id="btnTabWaveform" title="Show Throughput Waveform">WAVEFORM</button>
-              <button class="tab-view-btn active" id="btnTabMesh" title="Show Live Swarm Topology & Radar">PEER GRAPH</button>
+            <!-- Window controls in inspect view -->
+            <div class="window-controls-group">
+              <button class="win-btn" id="winMinInspect" title="Minimize">—</button>
+              <button class="win-btn" id="winMaxInspect" title="Maximize">▢</button>
+              <button class="win-btn win-close" id="winCloseInspect" title="Close">✕</button>
             </div>
           </div>
+        </header>
 
-          <div class="mesh-stats-row">
-            <div class="mesh-stat">
-              <span class="meta-label">DOWNSTREAM</span>
-              <span class="meta-stat-val font-mono" id="statDown">0.0 KB/s</span>
-            </div>
-            <div class="mesh-stat">
-              <span class="meta-label">UPSTREAM</span>
-              <span class="meta-stat-val font-mono" id="statUp">0.0 KB/s</span>
-            </div>
-            <div class="mesh-stat">
-              <span class="meta-label">DIRECT I/O</span>
-              <span class="meta-stat-val font-mono" id="statIO">0.0 MB/s</span>
-            </div>
-          </div>
-
-          <!-- INTERACTIVE PEER MESH TOPOLOGY & RADAR CANVAS (PEER GRAPH VIEW) -->
-          <div class="peer-mesh-card" id="peerMeshCard">
-            <div class="mesh-canvas-header">
-              <span class="mesh-canvas-title" id="meshCanvasTitle">SWARM TOPOLOGY & WIRE INSPECTOR // LIVE MESH</span>
-              <div class="mesh-canvas-legend font-mono" id="meshCanvasLegend">
-                <span class="legend-haven">● HAVEN ENGINE</span>
-                <span class="legend-peer">● PEER WIRE</span>
-                <span class="legend-wire" id="meshWireCount">0 PEERS</span>
+        <!-- Deep Inspect Main Workspace (Single Screen 100vh lock, no outer scrolling) -->
+        <div class="inspect-workspace-container">
+          
+          <!-- Top Summary Strip (4 White Cards, 82px) -->
+          <div class="inspect-summary-strip">
+            <!-- Strip Card 1: Flow Rate -->
+            <div class="inspect-summary-card">
+              <div class="summary-card-header">
+                <span class="summary-card-label" id="inspectFlowLabel">Download / Seeding Flow</span>
+                <div class="summary-icon-pill icon-pill-flow" id="inspectFlowIcon">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"></polyline></svg>
+                </div>
+              </div>
+              <div class="summary-card-body">
+                <div class="summary-primary-val" id="inspectFlowVal">0.0 KB/s</div>
+                <div class="summary-sub-val" id="inspectFlowPeak">Peak 0.0 KB/s</div>
               </div>
             </div>
-            <div class="mesh-canvas-wrap">
-              <canvas id="peerMeshCanvas" width="460" height="150" class="peer-mesh-canvas"></canvas>
-            </div>
-          </div>
 
-          <!-- WAVEFORM GRAPH (TOGGLEABLE) -->
-          <div class="waveform-card hidden" id="waveformCard">
-            <div class="waveform-header">
-              <span class="waveform-title">THROUGHPUT WAVEFORM // REAL-TIME 60S</span>
-              <div class="waveform-legend">
-                <span class="legend-down">● DOWN</span>
-                <span class="legend-up">● UP</span>
-                <span class="legend-now font-mono" id="waveformNow">NOW: 0.00 MB/s</span>
+            <!-- Strip Card 2: Connected Swarm -->
+            <div class="inspect-summary-card">
+              <div class="summary-card-header">
+                <span class="summary-card-label">Connected Swarm</span>
+                <div class="summary-icon-pill icon-pill-swarm">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>
+                </div>
+              </div>
+              <div class="summary-card-body">
+                <div class="summary-primary-val" id="inspectActivePeers">0 Active Peers</div>
+                <div class="summary-sub-val" id="inspectSwarmBreakdown">0 Seeders • 0 Leechers</div>
               </div>
             </div>
-            <canvas id="waveformCanvas" width="460" height="85" class="waveform-canvas"></canvas>
+
+            <!-- Strip Card 3: Piece Integrity -->
+            <div class="inspect-summary-card">
+              <div class="summary-card-header">
+                <span class="summary-card-label">Piece Integrity</span>
+                <div class="summary-icon-pill icon-pill-integrity">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                </div>
+              </div>
+              <div class="summary-card-body">
+                <div class="summary-primary-val" id="inspectIntegrityVal">0% Verified</div>
+                <div class="summary-sub-val" id="inspectIntegritySub">0 Chunks • SHA-1</div>
+              </div>
+            </div>
+
+            <!-- Strip Card 4: Share Ratio & Uptime -->
+            <div class="inspect-summary-card">
+              <div class="summary-card-header">
+                <span class="summary-card-label">Share Ratio & Uptime</span>
+                <div class="summary-icon-pill icon-pill-ratio">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                </div>
+              </div>
+              <div class="summary-card-body">
+                <div class="summary-primary-val" id="inspectRatioVal">0.00 Ratio</div>
+                <div class="summary-sub-val" id="inspectRatioSub">0.0 MB Uploaded</div>
+              </div>
+            </div>
           </div>
 
-          <!-- PEER MESH TABLE -->
-          <div class="peer-table-wrap">
-            <table class="peer-table">
-              <thead>
-                <tr>
-                  <th>PEER IP</th>
-                  <th>CLIENT</th>
-                  <th class="text-right">SPEED</th>
-                  <th class="text-center">ENCRYPTION</th>
-                </tr>
-              </thead>
-              <tbody id="peerTableBody">
-                <!-- Rendered dynamically -->
-              </tbody>
-            </table>
-          </div>
+          <!-- Main Split Bento Workspace (7fr 5fr) -->
+          <div class="inspect-bento-split">
+            
+            <!-- LEFT COLUMN (7fr) -->
+            <div class="inspect-bento-left">
+              
+              <!-- Hero Card: Flow Dynamics & Compact Piece Mosaic -->
+              <section class="inspect-bento-card hero-dynamics-card">
+                <!-- Dynamics Header -->
+                <div class="hero-dynamics-header">
+                  <div class="hero-header-left">
+                    <div class="hero-title-row">
+                      <h3 class="hero-card-title">Flow Dynamics</h3>
+                      <span class="badge-livestream">LIVE STREAM</span>
+                    </div>
+                    <p class="hero-card-sub" id="inspectDynamicsSub">Last 60 Seconds Outflow Rate • Peak 8.4 MB/s</p>
+                  </div>
+                  <div class="waveform-range-switcher" id="inspectWaveformRangeGroup">
+                    <button class="waveform-range-btn active" data-range="60s">60s</button>
+                    <button class="waveform-range-btn" data-range="15m">15m</button>
+                    <button class="waveform-range-btn" data-range="1h">1h</button>
+                  </div>
+                </div>
 
-          <!-- PIECE BITFIELD BLOCKS -->
-          <div class="bitfield-card">
-            <div class="bitfield-header">
-              <span class="bitfield-title">PIECE BITFIELD (TOTAL 471 CHUNKS)</span>
-              <span class="bitfield-verified font-mono" id="bitfieldRatio">322 VERIFIED / 18 IN-FLIGHT</span>
+                <!-- Mountain Silhouette Canvas Wrapper -->
+                <div class="inspect-waveform-wrapper">
+                  <div class="peak-speed-indicator-flag" id="waveformPeakFlag">
+                    <span class="peak-dot">●</span> Peak <span id="waveformPeakVal">8.4</span>
+                  </div>
+                  <canvas id="inspectWaveformCanvas" width="760" height="150"></canvas>
+                </div>
+
+                <!-- Timeline Ticks -->
+                <div class="waveform-timeline-ticks">
+                  <span>60s ago</span>
+                  <span>45s</span>
+                  <span>30s</span>
+                  <span>15s</span>
+                  <span id="waveformNowTick">Now (3.4 MB/s)</span>
+                </div>
+
+                <!-- Inner Divider -->
+                <div class="hero-inner-divider"></div>
+
+                <!-- Piece Bitfield & Chunk Allocation Section -->
+                <div class="piece-bitfield-section">
+                  <div class="bitfield-header-row">
+                    <div class="bitfield-title-col">
+                      <h4 class="bitfield-title">Piece Bitfield & Chunk Allocation</h4>
+                      <p class="bitfield-sub" id="inspectPieceStatsText">2,867 pieces @ 3.0 MB active flow</p>
+                    </div>
+                    <span class="badge-all-verified" id="inspectPieceVerifiedBadge">All 2,867 Verified</span>
+                  </div>
+
+                  <!-- 3-Row Micro-Pill Bitfield Grid -->
+                  <div class="micro-piece-matrix-grid" id="pieceMatrixGrid">
+                    <!-- Populated dynamically with micro pills -->
+                  </div>
+                </div>
+              </section>
+
+              <!-- Bottom-Left Card: Segmented Inspector Tabs -->
+              <section class="inspect-bento-card tabs-card">
+                <div class="tabs-card-header">
+                  <div class="segmented-pill-tabs" id="inspectTabSwitchGroup">
+                    <button class="inspect-subtab-btn active" data-tab="files" id="btnSubtabFiles">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                      <span id="tabFilesCountLabel">Files (3)</span>
+                    </button>
+                    <button class="inspect-subtab-btn" data-tab="trackers" id="btnSubtabTrackers">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>
+                      <span id="tabTrackersCountLabel">Trackers & DHT (4)</span>
+                    </button>
+                    <button class="inspect-subtab-btn" data-tab="engine" id="btnSubtabEngine">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                      <span>Engine & Disk I/O</span>
+                    </button>
+                  </div>
+                  <span class="tabs-total-content-label" id="inspectTabTotalSize">Total Content: 8.40 GB</span>
+                </div>
+
+                <!-- Pane 1: Files Manifest -->
+                <div class="tabs-pane-content" id="inspectPaneFiles">
+                  <div class="inspect-files-list-container" id="inspectManifestList">
+                    <!-- Dynamic Files Rows -->
+                  </div>
+                </div>
+
+                <!-- Pane 2: Trackers & DHT -->
+                <div class="tabs-pane-content hidden" id="inspectPaneTrackers">
+                  <div class="inspect-trackers-list-container" id="inspectTrackersList">
+                    <!-- Dynamic Trackers Rows -->
+                  </div>
+                </div>
+
+                <!-- Pane 3: Engine & Disk I/O -->
+                <div class="tabs-pane-content hidden" id="inspectPaneEngine">
+                  <div class="inspect-engine-grid">
+                    <div class="engine-metric-card">
+                      <span class="engine-label">RAM Piece Cache</span>
+                      <strong class="engine-val" id="inspectRamUsage">0 MB / OS Heap</strong>
+                      <span class="engine-sub">Zero-copy ring buffer • Adaptive LRU</span>
+                    </div>
+                    <div class="engine-metric-card">
+                      <span class="engine-label">Disk Write Latency</span>
+                      <strong class="engine-val">0.4 ms (Direct I/O)</strong>
+                      <span class="engine-sub">Async POSIX aio / Windows IOCP Active</span>
+                    </div>
+                    <div class="engine-metric-card">
+                      <span class="engine-label">Active Wire Sockets</span>
+                      <strong class="engine-val" id="inspectSocketCount">0 TCP / uTP Pipes</strong>
+                      <span class="engine-sub">ChaCha20-Poly1305 & TLS 1.3 Transport</span>
+                    </div>
+                    <div class="engine-metric-card">
+                      <span class="engine-label">SafePath Confinement</span>
+                      <strong class="engine-val text-emerald">Enforced • Confined</strong>
+                      <span class="engine-sub">Path traversal blocked (SR-16.4 Strict)</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
             </div>
-            <div class="bitfield-grid" id="bitfieldGrid">
-              <!-- 60-100 visual square blocks generated dynamically -->
+
+            <!-- RIGHT COLUMN (5fr) -->
+            <div class="inspect-bento-right">
+              <section class="inspect-bento-card swarm-diagnostics-card">
+                <!-- Header with View Switcher -->
+                <div class="swarm-diagnostics-header">
+                  <div class="swarm-view-pills" id="inspectRightGroupToggle">
+                    <button class="swarm-pill-toggle active" data-view="peers" id="btnTogglePeers">Active Peers (<span id="inspectPeersCountPill">0</span>)</button>
+                    <button class="swarm-pill-toggle" data-view="stream" id="btnToggleWireStream">Live Kernel Stream</button>
+                  </div>
+                  <div class="alpine-mesh-indicator">
+                    <span class="mesh-indicator-dot">●</span>
+                    <span id="inspectMeshIndicator">Swarm Standby</span>
+                  </div>
+                </div>
+
+                <!-- Top Half: Connected Peer Relays -->
+                <div class="peer-relays-container" id="inspectPeerRelaysSection">
+                  <div class="peer-relays-header-row">
+                    <div class="relays-title-col">
+                      <h4 class="relays-title">Connected Peer Relays</h4>
+                      <p class="relays-sub">4 Wire Streams Active • Direct Encrypted Pipes</p>
+                    </div>
+                    <div class="peer-filter-pill-dropdown">
+                      <span>Filter ⌵</span>
+                    </div>
+                  </div>
+
+                  <div class="peer-relays-list" id="inspectPeersList">
+                    <!-- Populated dynamically -->
+                  </div>
+                </div>
+
+                <!-- Bottom Half: Light-Theme Live Wire Feed -->
+                <div class="wire-feed-container" id="inspectWireFeedSection">
+                  <div class="wire-feed-header-row">
+                    <h4 class="wire-feed-title">Live Behind-The-Scenes Wire Feed</h4>
+                    <span class="badge-wire-stream">
+                      <span class="wire-stream-dot">●</span> Live Wire Stream
+                    </span>
+                  </div>
+
+                  <div class="wire-events-stream-list" id="inspectWireEventsList">
+                    <!-- Populated dynamically -->
+                  </div>
+
+                  <div class="wire-feed-footer-status">
+                    <span>✓ Auto-scroll active • Protocol efficiency: 99.2% • Buffer Latency: 0.4ms</span>
+                  </div>
+                </div>
+              </section>
             </div>
+
           </div>
         </div>
+      </div>
 
-        <!-- COLUMN 3: KERNEL & TRACKER LOG -->
-        <div class="diagnostics-column col-kernel">
-          <div class="col-header">
-            <div class="header-tag">
-              <span class="header-icon">🖵</span>
-              <span class="header-title">KERNEL & TRACKER LOG</span>
-            </div>
-            <span class="badge-streaming"><span class="stream-dot">■</span> STREAMING</span>
+      <!-- =====================================================================
+           VIEW 2: SANCTUARY SETTINGS STUDIO (MATCHING USER SCREENSHOT)
+           ===================================================================== -->
+      <div id="settingsView" class="view-panel hidden">
+        <!-- Settings Top Bar -->
+        <header class="settings-topbar">
+          <div class="settings-topbar-left">
+            <button class="btn-back-transfers" id="btnBackToTransfers">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12"></line>
+                <polyline points="12 19 5 12 12 5"></polyline>
+              </svg>
+              <span>Back to Transfers</span>
+            </button>
+            <span class="settings-env-badge">PERFORMANCE STUDIO</span>
           </div>
 
-          <!-- LOG STREAM TERMINAL -->
-          <div class="kernel-log-terminal" id="kernelLogTerminal">
-            <!-- Timestamped log lines generated dynamically -->
-          </div>
+          <div class="settings-topbar-right">
+            <div class="search-sanctuary-box settings-search">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <input type="text" id="settingsSearchInput" placeholder="Search preferences & Sanctuary rules..." autocomplete="off">
+            </div>
 
-          <!-- ACTIVE TRACKER BOX -->
-          <div class="tracker-box">
-            <div class="tr-row">
-              <span class="tr-label">ACTIVE TRACKER:</span>
-              <span class="tr-val font-mono" id="trActive">archlinux.org:6969</span>
+            <!-- Desktop window controls -->
+            <div class="window-controls-group">
+              <button class="win-btn" id="winMinSettings" title="Minimize">—</button>
+              <button class="win-btn" id="winMaxSettings" title="Maximize">▢</button>
+              <button class="win-btn win-close" id="winCloseSettings" title="Close">✕</button>
             </div>
-            <div class="tr-row">
-              <span class="tr-label">RE-ANNOUNCE IN:</span>
-              <span class="tr-val font-mono" id="trReannounce">00:14:38</span>
+          </div>
+        </header>
+
+        <!-- Settings Scroll Container -->
+        <div class="settings-scroll-area">
+          <div class="sanctuary-settings-container">
+            
+            <!-- Heading & Section Pills -->
+            <div class="settings-title-block">
+              <div class="settings-heading-row">
+                <div>
+                  <h2 class="settings-main-title">Sanctuary Settings</h2>
+                  <p class="settings-main-subtitle">Configure Alpine relay nodes, theme atmosphere, storage vaults, and swarm mesh protocols with effortless quiet control.</p>
+                </div>
+
+                <!-- Section Anchor Pills -->
+                <div class="settings-anchor-pills" id="settingsAnchorPills">
+                  <button class="anchor-pill-btn active" data-target="secAppearance">Appearance</button>
+                  <button class="anchor-pill-btn" data-target="secStorage">Storage Vault</button>
+                  <button class="anchor-pill-btn" data-target="secFlow">Flow & Rates</button>
+                  <button class="anchor-pill-btn" data-target="secMesh">Mesh & Privacy</button>
+                  <button class="anchor-pill-btn" data-target="secSystem">System</button>
+                  <button class="anchor-pill-btn dev-sandbox-pill hidden" id="devSandboxPill" data-target="secDevSandbox">🛠 Dev Sandbox</button>
+                </div>
+              </div>
             </div>
-            <div class="tr-row">
-              <span class="tr-label">SCRAPE SEED/LEECH:</span>
-              <span class="tr-val font-mono" id="trScrape">1,842 / 419</span>
+
+            <!-- 2-COLUMN ASYMMETRIC BENTO GRID -->
+            <div class="settings-bento-grid">
+
+              <!-- ROW 1: THEME & ATMOSPHERE STUDIO (Span 12) -->
+              <section class="settings-card bento-span-12" id="secAppearance">
+                <div class="settings-card-header">
+                  <div class="card-header-left">
+                    <div class="settings-section-icon">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e4d3e" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a7 7 0 0 0 0 14v6"></path></svg>
+                    </div>
+                    <div>
+                      <h3 class="card-section-title">Theme & Atmosphere Studio</h3>
+                      <p class="card-section-desc">Calibrate tactile glassmorphism, mountain palettes, and visual density</p>
+                    </div>
+                  </div>
+                  <span class="card-status-badge badge-blue">Live Sync Active</span>
+                </div>
+
+                <!-- 4 Theme Atmosphere Cards -->
+                <div class="theme-palettes-grid">
+                  <!-- Theme 1: Alpine Mist (Active) -->
+                  <div class="theme-card active" data-theme="alpine-mist">
+                    <div class="theme-check-badge">✓</div>
+                    <div class="theme-palette-preview">
+                      <div class="theme-preview-strip">
+                        <span class="swatch-strip-pill" style="background: #1e4d3e; flex: 3;"></span>
+                        <span class="swatch-strip-pill" style="background: #10b981; flex: 2.5;"></span>
+                        <span class="swatch-strip-pill" style="background: #34d399; flex: 2;"></span>
+                        <span class="swatch-strip-pill" style="background: #d1fae5; flex: 2.5;"></span>
+                      </div>
+                    </div>
+                    <div class="theme-card-info">
+                      <strong class="theme-name">Alpine Mist</strong>
+                      <span class="theme-desc">Clean alabaster & forest pine</span>
+                    </div>
+                  </div>
+
+                  <!-- Theme 2: Midnight Pine -->
+                  <div class="theme-card" data-theme="midnight-pine">
+                    <div class="theme-check-badge hidden">✓</div>
+                    <div class="theme-palette-preview">
+                      <div class="theme-preview-strip">
+                        <span class="swatch-strip-pill" style="background: #0f172a; flex: 3;"></span>
+                        <span class="swatch-strip-pill" style="background: #1e293b; flex: 2.5;"></span>
+                        <span class="swatch-strip-pill" style="background: #10b981; flex: 2;"></span>
+                        <span class="swatch-strip-pill" style="background: #064e3b; flex: 2.5;"></span>
+                      </div>
+                    </div>
+                    <div class="theme-card-info">
+                      <strong class="theme-name">Midnight Pine</strong>
+                      <span class="theme-desc">Deep obsidian & emerald glow</span>
+                    </div>
+                  </div>
+
+                  <!-- Theme 3: Glacier Fjord -->
+                  <div class="theme-card" data-theme="glacier-fjord">
+                    <div class="theme-check-badge hidden">✓</div>
+                    <div class="theme-palette-preview">
+                      <div class="theme-preview-strip">
+                        <span class="swatch-strip-pill" style="background: #0284c7; flex: 3;"></span>
+                        <span class="swatch-strip-pill" style="background: #38bdf8; flex: 2.5;"></span>
+                        <span class="swatch-strip-pill" style="background: #0369a1; flex: 2;"></span>
+                        <span class="swatch-strip-pill" style="background: #e0f2fe; flex: 2.5;"></span>
+                      </div>
+                    </div>
+                    <div class="theme-card-info">
+                      <strong class="theme-name">Glacier Fjord</strong>
+                      <span class="theme-desc">Crisp ice-cyan & Nordic slate</span>
+                    </div>
+                  </div>
+
+                  <!-- Theme 4: Autumn Timber -->
+                  <div class="theme-card" data-theme="autumn-timber">
+                    <div class="theme-check-badge hidden">✓</div>
+                    <div class="theme-palette-preview">
+                      <div class="theme-preview-strip">
+                        <span class="swatch-strip-pill" style="background: #d97706; flex: 3;"></span>
+                        <span class="swatch-strip-pill" style="background: #f59e0b; flex: 2.5;"></span>
+                        <span class="swatch-strip-pill" style="background: #78350f; flex: 2;"></span>
+                        <span class="swatch-strip-pill" style="background: #fef3c7; flex: 2.5;"></span>
+                      </div>
+                    </div>
+                    <div class="theme-card-info">
+                      <strong class="theme-name">Autumn Timber</strong>
+                      <span class="theme-desc">Warm cedar amber & stone</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Atmosphere Controls Row -->
+                <div class="atmosphere-controls-row">
+                  <div class="atm-item atm-toggle-item">
+                    <div class="atm-label-col">
+                      <span class="atm-title">Natural Daylight Sync</span>
+                      <span class="atm-sub">Shift tone at sunrise & sunset</span>
+                    </div>
+                    <label class="switch-toggle">
+                      <input type="checkbox" id="chkDaylightSync" checked>
+                      <span class="switch-slider"></span>
+                    </label>
+                  </div>
+
+                  <div class="atm-item">
+                    <div class="atm-label-col">
+                      <span class="atm-title">Interface Density</span>
+                      <span class="atm-sub">Spacious layout</span>
+                    </div>
+                    <div class="segmented-density-pill">
+                      <button class="density-btn active" data-density="spacious">Sanctuary</button>
+                      <button class="density-btn" data-density="compact">Compact</button>
+                    </div>
+                  </div>
+
+                  <div class="atm-item atm-slider-item">
+                    <div class="atm-label-col">
+                      <span class="atm-title">Glass Diffusion Depth</span>
+                      <span class="atm-sub" id="diffusionValLabel">24 px Frosted</span>
+                    </div>
+                    <input type="range" id="sliderDiffusion" min="8" max="48" step="4" value="24" class="custom-slider">
+                  </div>
+                </div>
+              </section>
+
+              <!-- ROW 2: STORAGE VAULT & SAFEPATH RULES (Span 6) -->
+              <section class="settings-card bento-span-6" id="secStorage">
+                <div class="settings-card-header">
+                  <div class="card-header-left">
+                    <div class="settings-section-icon">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e4d3e" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                    </div>
+                    <div>
+                      <h3 class="card-section-title">Storage Vault & SafePath Rules</h3>
+                      <p class="card-section-desc">Strict disk partitioning, safe staging, and organization</p>
+                    </div>
+                  </div>
+                  <span class="card-status-badge badge-mint">NVMe Mounted</span>
+                </div>
+
+                <!-- Vault Directory Input & Space Bar -->
+                <div class="vault-dir-box">
+                  <div class="vault-dir-label">DEFAULT DOWNLOAD SANCTUARY</div>
+                  <div class="vault-dir-row">
+                    <input type="text" id="settingsVaultPath" class="vault-path-input" value="F:\Torrent\Sanctuary" spellcheck="false">
+                    <button class="btn-change-vault" id="btnChangeVaultDir">Change Directory...</button>
+                  </div>
+                  <div class="vault-capacity-bar-track">
+                    <div class="vault-capacity-fill" id="vaultCapacityFill" style="width: 0%;"></div>
+                  </div>
+                  <div class="vault-capacity-labels">
+                    <span id="vaultAvailableText">Querying disk storage...</span>
+                    <span id="vaultCapacityTotal">Local Vault</span>
+                  </div>
+                </div>
+
+                <!-- Staging Quarantine Box -->
+                <div class="staging-quarantine-card">
+                  <div class="quarantine-left">
+                    <div class="quarantine-icon-square">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e4d3e" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                    </div>
+                    <div class="quarantine-text-col">
+                      <strong class="q-title">Quarantine Incomplete Chunks in Staging</strong>
+                      <span class="q-desc" id="stagingPathDesc">Temporary blocks kept safely until verified: F:\Torrent\Sanctuary\.staging</span>
+                    </div>
+                  </div>
+                  <label class="switch-toggle">
+                    <input type="checkbox" id="chkQuarantineStaging" checked>
+                    <span class="switch-slider"></span>
+                  </label>
+                </div>
+
+                <!-- SafePath Switches Grid -->
+                <div class="settings-switches-grid">
+                  <div class="switch-card">
+                    <div class="switch-card-text">
+                      <strong class="switch-title">SafePath Confinement Lock</strong>
+                      <span class="switch-desc">Neutralize directory path traversal exploits</span>
+                    </div>
+                    <label class="switch-toggle">
+                      <input type="checkbox" id="chkSafePathLock" checked>
+                      <span class="switch-slider"></span>
+                    </label>
+                  </div>
+
+                  <div class="switch-card">
+                    <div class="switch-card-text">
+                      <strong class="switch-title">Pre-allocate Contiguous Disk Space</strong>
+                      <span class="switch-desc">Zero-fragmentation file booking</span>
+                    </div>
+                    <label class="switch-toggle">
+                      <input type="checkbox" id="chkPreallocate" checked>
+                      <span class="switch-slider"></span>
+                    </label>
+                  </div>
+
+                  <div class="switch-card">
+                    <div class="switch-card-text">
+                      <strong class="switch-title">Auto-Organize by Media Category</strong>
+                      <span class="switch-desc">Automatic routing into Audio, Video, & ISO</span>
+                    </div>
+                    <label class="switch-toggle">
+                      <input type="checkbox" id="chkAutoOrganize" checked>
+                      <span class="switch-slider"></span>
+                    </label>
+                  </div>
+
+                  <div class="switch-card">
+                    <div class="switch-card-text">
+                      <strong class="switch-title">Move Completed Transfers to NAS</strong>
+                      <span class="switch-desc">Relocate finished torrents to secondary archive</span>
+                    </div>
+                    <label class="switch-toggle">
+                      <input type="checkbox" id="chkMoveCompleted">
+                      <span class="switch-slider"></span>
+                    </label>
+                  </div>
+                </div>
+              </section>
+
+              <!-- ROW 2: FLOW CONTROL & BANDWIDTH (Span 6) -->
+              <section class="settings-card bento-span-6" id="secFlow">
+                <div class="settings-card-header">
+                  <div class="card-header-left">
+                    <div class="settings-section-icon">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e4d3e" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                    </div>
+                    <div>
+                      <h3 class="card-section-title">Flow Control & Bandwidth</h3>
+                      <p class="card-section-desc">Dynamic pipeline regulation, latency dampening & scheduler</p>
+                    </div>
+                  </div>
+                  <span class="card-status-badge badge-blue">Dynamic uTP</span>
+                </div>
+
+                <!-- 3 QoS Preset Cards -->
+                <div class="qos-cards-grid">
+                  <div class="qos-card" data-preset="unrestricted">
+                    <div class="qos-card-header">
+                      <strong class="qos-name">Unrestricted Flow</strong>
+                      <span class="qos-icon">⚡</span>
+                    </div>
+                    <span class="qos-desc">Maximum uncapped throughput</span>
+                  </div>
+
+                  <div class="qos-card active" data-preset="balanced">
+                    <div class="qos-card-header">
+                      <strong class="qos-name">Balanced Sanctuary</strong>
+                      <span class="qos-check">✓</span>
+                    </div>
+                    <span class="qos-desc">Zero-latency priority for gaming & work</span>
+                  </div>
+
+                  <div class="qos-card" data-preset="silent">
+                    <div class="qos-card-header">
+                      <strong class="qos-name">Silent Night Stream</strong>
+                      <span class="qos-icon">🌙</span>
+                    </div>
+                    <span class="qos-desc">Whisper-quiet background throttling</span>
+                  </div>
+                </div>
+
+                <!-- Inflow / Outflow Sliders -->
+                <div class="rates-sliders-grid">
+                  <div class="rate-slider-box">
+                    <div class="rate-slider-header">
+                      <label for="settingsDownSlider" class="rate-label">Maximum Inflow (Download)</label>
+                      <span class="rate-value-tag" id="settingsDownVal">Unlimited (0 KB/s)</span>
+                    </div>
+                    <input type="range" id="settingsDownSlider" min="0" max="25000" step="250" value="0" class="custom-slider">
+                    <div class="slider-marks">
+                      <span>500 KB/s</span>
+                      <span>5 MB/s</span>
+                      <span>25 MB/s</span>
+                      <span>No Limit</span>
+                    </div>
+                  </div>
+
+                  <div class="rate-slider-box">
+                    <div class="rate-slider-header">
+                      <label for="settingsUpSlider" class="rate-label">Maximum Outflow (Upload)</label>
+                      <span class="rate-value-tag" id="settingsUpVal">5.0 MB/s</span>
+                    </div>
+                    <input type="range" id="settingsUpSlider" min="0" max="10000" step="100" value="5000" class="custom-slider">
+                    <div class="slider-marks">
+                      <span>250 KB/s</span>
+                      <span>2.5 MB/s</span>
+                      <span>10 MB/s</span>
+                      <span>No Limit</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Circadian Speed Scheduler Visual Bar -->
+                <div class="circadian-card">
+                  <div class="circadian-header">
+                    <div class="circadian-title-left">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1e4d3e" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                      <strong>Circadian Speed Scheduler</strong>
+                    </div>
+                    <div class="circadian-toggle-right">
+                      <span class="circadian-state-label">Day Throttle / Night Stream</span>
+                      <label class="switch-toggle">
+                        <input type="checkbox" id="chkCircadian" checked>
+                        <span class="switch-slider"></span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <!-- Colorful Visual Timeline -->
+                  <div class="circadian-timeline-bar">
+                    <div class="circadian-segment seg-green" style="flex: 9;" title="00:00 - 09:00: Full Flow (Overnight)">Full Flow (Overnight)</div>
+                    <div class="circadian-segment seg-blue" style="flex: 9;" title="09:00 - 18:00: Throttled 2.0 MB/s (Work)">Throttled 2.0 MB/s (Work)</div>
+                    <div class="circadian-segment seg-green" style="flex: 6;" title="18:00 - 24:00: Full Flow">Full Flow</div>
+                  </div>
+                  <div class="circadian-time-ticks">
+                    <span>00:00</span>
+                    <span>09:00</span>
+                    <span>12:00 (Solar Peak)</span>
+                    <span>18:00</span>
+                    <span>24:00</span>
+                  </div>
+                </div>
+
+                <!-- Dropdowns Row -->
+                <div class="settings-dropdowns-row">
+                  <div class="dropdown-field">
+                    <label for="selSeedRatio">Target Seed Ratio</label>
+                    <select id="selSeedRatio" class="settings-select">
+                      <option value="1.0">Stop seeding at 1.0 Ratio</option>
+                      <option value="1.5">Stop seeding at 1.5 Ratio</option>
+                      <option value="2.0" selected>Stop seeding at 2.0 Ratio</option>
+                      <option value="0">Continuous Seeding</option>
+                    </select>
+                  </div>
+
+                  <div class="dropdown-field">
+                    <label for="selSeedTime">Maximum Seeding Time</label>
+                    <select id="selSeedTime" class="settings-select">
+                      <option value="24">24 hours</option>
+                      <option value="48">48 hours</option>
+                      <option value="72" selected>72 hours</option>
+                      <option value="0">Unlimited Time</option>
+                    </select>
+                  </div>
+                </div>
+              </section>
+
+              <!-- ROW 3: SWARM PROTOCOL, MESH & PRIVACY (Span 7) -->
+              <section class="settings-card bento-span-7" id="secMesh">
+                <div class="settings-card-header">
+                  <div class="card-header-left">
+                    <div class="settings-section-icon">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e4d3e" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                    </div>
+                    <div>
+                      <h3 class="card-section-title">Swarm Protocol, Mesh & Privacy</h3>
+                      <p class="card-section-desc">Peer routing mesh, payload encryption, and anonymous relays</p>
+                    </div>
+                  </div>
+                  <span class="card-status-badge badge-mint" id="meshStatusBadge">● 0 Active Relay Nodes — Waiting for Swarm</span>
+                </div>
+
+                <!-- Geographic Mountain Relay Map (Sleek 220px height) -->
+                <div class="mountain-mesh-map-card" id="mountainMeshMap">
+                  <svg class="mountain-backdrop-svg" viewBox="0 0 800 220" preserveAspectRatio="none">
+                    <polygon points="0,220 160,100 320,220" fill="#e2efe6" opacity="0.6"/>
+                    <polygon points="200,220 400,50 600,220" fill="#cbe3d3" opacity="0.8"/>
+                    <polygon points="480,220 640,80 800,220" fill="#d9ebd0" opacity="0.5"/>
+                    <line x1="160" y1="100" x2="400" y2="50" stroke="#10b981" stroke-width="1.5" stroke-dasharray="4,4"/>
+                    <line x1="640" y1="80" x2="400" y2="50" stroke="#10b981" stroke-width="1.5" stroke-dasharray="4,4"/>
+                    <line x1="140" y1="170" x2="400" y2="130" stroke="#10b981" stroke-width="1.5" stroke-dasharray="4,4"/>
+                    <line x1="660" y1="170" x2="400" y2="130" stroke="#10b981" stroke-width="1.5" stroke-dasharray="4,4"/>
+                  </svg>
+
+                  <!-- Node Badges Over Mountain (Visible in Dev Simulation or Active Swarms) -->
+                  <div class="mesh-nodes-overlay hidden" id="meshNodesOverlay">
+                    <div class="node-badge node-frankfurt">
+                      <span class="node-dot"></span>
+                      <div class="node-text">
+                        <strong>Swarm Peer Alpha</strong>
+                        <span id="meshRateFrankfurt">0.0 KB/s</span>
+                      </div>
+                    </div>
+
+                    <div class="node-badge node-tokyo">
+                      <span class="node-dot"></span>
+                      <div class="node-text">
+                        <strong>Swarm Peer Beta</strong>
+                        <span id="meshRateTokyo">0.0 KB/s</span>
+                      </div>
+                    </div>
+
+                    <div class="center-sanctuary-hub">
+                      <div class="hub-icon-squircle">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5"><polygon points="12 3 3 17 9 17 6 22 18 10 13 10 21 3 12 3"/></svg>
+                      </div>
+                      <span class="hub-label" id="meshHubLabel">Local Sanctuary Buffer</span>
+                    </div>
+
+                    <div class="node-badge node-seattle">
+                      <span class="node-dot"></span>
+                      <div class="node-text">
+                        <strong>Swarm Peer Gamma</strong>
+                        <span id="meshRateSeattle">0.0 KB/s</span>
+                      </div>
+                    </div>
+
+                    <div class="node-badge node-stockholm">
+                      <span class="node-dot"></span>
+                      <div class="node-text">
+                        <strong>Swarm Peer Delta</strong>
+                        <span id="meshRateStockholm">0.0 KB/s</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Idle Standby Overlay for production when 0 nodes -->
+                  <div class="mesh-idle-overlay" id="meshIdleOverlay">
+                    <div class="mesh-idle-pulse">
+                      <span class="mesh-pulse-ring"></span>
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#234F3E" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                    </div>
+                    <span class="mesh-idle-title">Swarm Mesh on Standby</span>
+                    <span class="mesh-idle-desc">0 Active Relay Nodes — Waiting for Swarm</span>
+                  </div>
+                </div>
+
+                <!-- Stream Payload Encryption Segmented -->
+                <div class="encryption-section">
+                  <span class="enc-label">STREAM PAYLOAD ENCRYPTION</span>
+                  <div class="encryption-segmented-pill">
+                    <button class="enc-pill-btn" data-enc="prefer">Prefer Encrypted</button>
+                    <button class="enc-pill-btn active" data-enc="strict">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                      <span>Require Strict AES-256</span>
+                    </button>
+                    <button class="enc-pill-btn" data-enc="fallback">Standard Fallback</button>
+                  </div>
+                </div>
+
+                <!-- Protocol Toggles Grid -->
+                <div class="settings-switches-grid">
+                  <div class="switch-card">
+                    <div class="switch-card-text">
+                      <strong class="switch-title">Distributed Hash Table (DHT)</strong>
+                      <span class="switch-desc">Trackerless peer lookup network</span>
+                    </div>
+                    <label class="switch-toggle">
+                      <input type="checkbox" id="chkDht" checked>
+                      <span class="switch-slider"></span>
+                    </label>
+                  </div>
+
+                  <div class="switch-card">
+                    <div class="switch-card-text">
+                      <strong class="switch-title">Peer Exchange (PEX) Relay</strong>
+                      <span class="switch-desc">Gossip-based peer discovery</span>
+                    </div>
+                    <label class="switch-toggle">
+                      <input type="checkbox" id="chkPex" checked>
+                      <span class="switch-slider"></span>
+                    </label>
+                  </div>
+
+                  <div class="switch-card">
+                    <div class="switch-card-text">
+                      <strong class="switch-title">Local Peer Discovery (LPD)</strong>
+                      <span class="switch-desc">High-speed gigabit LAN multicast</span>
+                    </div>
+                    <label class="switch-toggle">
+                      <input type="checkbox" id="chkLpd" checked>
+                      <span class="switch-slider"></span>
+                    </label>
+                  </div>
+
+                  <div class="switch-card">
+                    <div class="switch-card-text">
+                      <strong class="switch-title">uTP / TCP Congestion Control</strong>
+                      <span class="switch-desc">Micro-transport buffer auto-tuning</span>
+                    </div>
+                    <label class="switch-toggle">
+                      <input type="checkbox" id="chkUtp" checked>
+                      <span class="switch-slider"></span>
+                    </label>
+                  </div>
+                </div>
+
+                <!-- Listening Port Row -->
+                <div class="port-binding-row">
+                  <div class="port-input-group">
+                    <span class="port-label">Listening Port</span>
+                    <span class="port-sub">Inbound socket bind</span>
+                    <input type="number" id="inputListeningPort" class="port-number-input" value="6881" min="1024" max="65535">
+                    <button class="btn-randomize-port" id="btnRandomizePort">Randomize</button>
+                  </div>
+
+                  <div class="upnp-forward-group">
+                    <span class="upnp-label">UPnP / NAT-PMP Auto-Forward</span>
+                    <label class="switch-toggle">
+                      <input type="checkbox" id="chkUpnp" checked>
+                      <span class="switch-slider"></span>
+                    </label>
+                    <span class="port-status-badge">● Port Routable & Open</span>
+                  </div>
+                </div>
+              </section>
+
+              <!-- ROW 3: SYSTEM INTEGRATION & AUTOMATION (Span 5) -->
+              <section class="settings-card bento-span-5" id="secSystem">
+                <div class="settings-card-header">
+                  <div class="card-header-left">
+                    <div class="settings-section-icon">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e4d3e" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                    </div>
+                    <div>
+                      <h3 class="card-section-title">System Integration & Automation</h3>
+                      <p class="card-section-desc">Background daemons, protocol associations & state</p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- System Switches Grid -->
+                <div class="settings-switches-grid">
+                  <div class="switch-card">
+                    <div class="switch-card-text">
+                      <strong class="switch-title" id="lblLaunchStartup">Launch Haven at Windows startup</strong>
+                      <span class="switch-desc">Auto-start daemon on boot</span>
+                    </div>
+                    <label class="switch-toggle">
+                      <input type="checkbox" id="chkLaunchLogin" checked>
+                      <span class="switch-slider"></span>
+                    </label>
+                  </div>
+
+                  <div class="switch-card">
+                    <div class="switch-card-text">
+                      <strong class="switch-title" id="lblMinimizeTray">Minimize to system tray on close</strong>
+                      <span class="switch-desc">Keep seeding active in background</span>
+                    </div>
+                    <label class="switch-toggle">
+                      <input type="checkbox" id="chkMinimizeTray" checked>
+                      <span class="switch-slider"></span>
+                    </label>
+                  </div>
+
+                  <div class="switch-card">
+                    <div class="switch-card-text">
+                      <strong class="switch-title">Associate .torrent and magnet: protocols</strong>
+                      <span class="switch-desc">Catch clicks from browser and desktop</span>
+                    </div>
+                    <label class="switch-toggle">
+                      <input type="checkbox" id="chkProtocols" checked>
+                      <span class="switch-slider"></span>
+                    </label>
+                  </div>
+
+                  <div class="switch-card">
+                    <div class="switch-card-text">
+                      <strong class="switch-title">Prevent system sleep during active transfers</strong>
+                      <span class="switch-desc">OS power state stay-awake assertion</span>
+                    </div>
+                    <label class="switch-toggle">
+                      <input type="checkbox" id="chkPreventSleep" checked>
+                      <span class="switch-slider"></span>
+                    </label>
+                  </div>
+                </div>
+              </section>
+
+              <!-- ROW 4: DEVELOPER & UI SANDBOX (Span 12, Hidden Unless Unlocked) -->
+              <section class="settings-card bento-span-12 dev-sandbox-card hidden" id="secDevSandbox">
+                <div class="settings-card-header">
+                  <div class="card-header-left">
+                    <div class="settings-section-icon dev-icon">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b45309" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
+                    </div>
+                    <div>
+                      <h3 class="card-section-title">Developer & UI Sandbox Mode</h3>
+                      <p class="card-section-desc">Isolated simulated state, synthetic waveforms, and test swarms for design benchmarking</p>
+                    </div>
+                  </div>
+                  <span class="card-status-badge badge-amber">DEV BENCHMARK ONLY</span>
+                </div>
+
+                <div class="settings-switches-grid">
+                  <div class="switch-card">
+                    <div class="switch-card-text">
+                      <strong class="switch-title">Enable Mock Transfers & Swarm Data</strong>
+                      <span class="switch-desc">Instantly populate UI with virtual dummy transfers (Arch Linux, Cosmos 4K, Alpine Assets, Debian 12) to test layouts and context menus without downloading.</span>
+                    </div>
+                    <label class="switch-toggle">
+                      <input type="checkbox" id="chkEnableMockData">
+                      <span class="switch-slider"></span>
+                    </label>
+                  </div>
+
+                  <div class="switch-card">
+                    <div class="switch-card-text">
+                      <strong class="switch-title">Simulate Live Speed Waveform & Peer Mesh</strong>
+                      <span class="switch-desc">Run sine-wave speed fluctuating generator and simulated peer nodes (Frankfurt, Tokyo, Seattle, Stockholm) in chart and Deep Inspect screen.</span>
+                    </div>
+                    <label class="switch-toggle">
+                      <input type="checkbox" id="chkSimulateWaveform">
+                      <span class="switch-slider"></span>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="sandbox-actions-row">
+                  <button class="btn-purge-sandbox" id="btnPurgeSandbox">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    <span>Reset & Purge All Sandbox State</span>
+                  </button>
+                  <span class="sandbox-hint-text">Immediately strips all mock data and returns UI to live WebTorrent backend state.</span>
+                </div>
+              </section>
+
             </div>
+
+            <!-- STICKY ACTION FOOTER -->
+            <footer class="settings-floating-footer">
+              <div class="footer-left-btns">
+                <button class="btn-ghost-action" id="btnClearCache">Clear InfoHash Cache</button>
+                <button class="btn-ghost-action" id="btnResetDefaults">Reset to Alpine Defaults</button>
+              </div>
+
+              <div class="footer-right-btns">
+                <button class="btn-ghost-action" id="btnExportConfig">Export Sanctuary Config</button>
+                <button class="btn-save-settings" id="btnSavePreferences">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span>Save Preferences</span>
+                </button>
+              </div>
+            </footer>
+
           </div>
         </div>
-
-      </section>
+      </div>
 
     </main>
 
   </div>
 
-  <!-- BOTTOM STATUS FOOTER BAR -->
-  <footer class="bottom-footer-bar">
-    <div class="footer-left">
-      <span class="footer-metric">DHT: <strong class="font-mono" id="footDht">READY (0 NODES)</strong></span>
-      <span class="footer-sep">|</span>
-      <span class="footer-metric">SOCKET ENCRYPTION: <strong class="font-mono">CHACHA20-POLY1305</strong></span>
-      <span class="footer-sep">|</span>
-      <span class="footer-metric">DISK I/O: <strong class="font-mono text-emerald" id="footDiskIO">0.0 KB/S (IDLE)</strong></span>
-    </div>
+  <!-- =========================================================================
+       ADD NEW DOWNLOAD MODAL (EXACT MATCH TO SCREENSHOT 1)
+       ========================================================================= -->
+  <div id="addDownloadModal" class="haven-modal-backdrop hidden">
+    <div class="haven-modal-card add-download-modal">
+      
+      <!-- Modal Header -->
+      <div class="modal-header-row">
+        <div class="modal-header-titles">
+          <h2 class="modal-main-title">Add New Download</h2>
+          <p class="modal-sub-title">Paste a magnet link or choose a torrent file to start</p>
+        </div>
+        <button class="modal-close-btn" id="btnCloseAddModal" title="Close (Esc)">✕</button>
+      </div>
 
-    <div class="footer-right">
-      <span class="footer-metric">GLOBAL RATIO: <strong class="font-mono" id="footRatio">0.00</strong></span>
-      <span class="footer-sep">|</span>
-      <span class="footer-metric">TOTAL DOWN: <strong class="font-mono" id="footTotalDown">0.0 MB</strong></span>
-      <span class="footer-sep">|</span>
-      <span class="footer-metric">TOTAL UP: <strong class="font-mono" id="footTotalUp">0.0 MB</strong></span>
-      <span class="footer-sep">|</span>
-      <div class="zoom-controls">
-        <span class="zoom-label font-mono">ZOOM:</span>
-        <button class="btn-zoom" id="btnZoomOut" title="Zoom Out (Ctrl + -)">−</button>
-        <button class="btn-zoom-level font-mono" id="btnZoomReset" title="Reset Zoom (Ctrl + 0)">100%</button>
-        <button class="btn-zoom" id="btnZoomIn" title="Zoom In (Ctrl + +)">+</button>
+      <!-- Segmented Type Selector -->
+      <div class="modal-type-segmented">
+        <button class="type-pill-btn active" id="typeMagnetTab">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+          </svg>
+          <span>Magnet Link</span>
+        </button>
+        <button class="type-pill-btn" id="typeTorrentTab">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+          </svg>
+          <span>Torrent File</span>
+        </button>
+      </div>
+
+      <!-- Tab 1: Magnet Link Input Card -->
+      <div class="tab-pane-container" id="paneMagnet">
+        <div class="magnet-input-card">
+          <div class="magnet-card-header">
+            <span class="input-card-label">MAGNET URI / ADDRESS</span>
+            <button class="btn-paste-clipboard" id="btnPasteClipboard" type="button">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+              </svg>
+              <span>Paste</span>
+            </button>
+          </div>
+          <textarea id="modalMagnetUri" class="magnet-textarea" rows="2" placeholder="magnet:?xt=urn:btih:..." spellcheck="false"></textarea>
+        </div>
+
+        <!-- Drop Files onto Haven zone -->
+        <div class="cloud-drop-zone" id="dropZoneModal">
+          <div class="cloud-icon-circle">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>
+            </svg>
+          </div>
+          <div class="cloud-drop-text">
+            <div class="cloud-drop-title">Or drop files onto Haven</div>
+            <div class="cloud-drop-sub">Torrent metadata will parse instantaneously</div>
+          </div>
+          <input type="file" id="modalFileInput" accept=".torrent" class="hidden">
+        </div>
+      </div>
+
+      <!-- Tab 2: Torrent File Card (hidden by default) -->
+      <div class="tab-pane-container hidden" id="paneTorrent">
+        <div class="file-picker-card" id="btnBrowseTorrentFile">
+          <div class="cloud-icon-circle">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1e4d3e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+          </div>
+          <div class="cloud-drop-text">
+            <div class="cloud-drop-title" id="selectedTorrentFileName">Choose a .torrent file from your computer</div>
+            <div class="cloud-drop-sub" id="selectedTorrentFileSize">Click to browse or drag & drop file here</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Destination Card -->
+      <div class="destination-card">
+        <div class="dest-icon-squircle">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+          </svg>
+        </div>
+        <div class="dest-info-col">
+          <span class="dest-label">DESTINATION</span>
+          <div class="dest-path-row">
+            <strong class="dest-path-name" id="modalDestPath">Downloads / Torrents</strong>
+            <span class="dest-separator">•</span>
+            <span class="dest-space-info" id="modalDestSpace">303 GB Available</span>
+          </div>
+        </div>
+        <button class="btn-dest-edit" id="btnBrowseMagnetPath" type="button">Edit...</button>
+      </div>
+
+      <!-- Advanced Options Accordion -->
+      <div class="accordion-card">
+        <button class="accordion-header" id="btnToggleAdvanced" type="button">
+          <div class="accordion-left">
+            <span class="accordion-chevron" id="accordionChevron">›</span>
+            <span class="accordion-title">Advanced Options</span>
+          </div>
+          <span class="accordion-right-hint">Default settings</span>
+        </button>
+        <div class="accordion-content hidden" id="accordionContent">
+          <div class="adv-grid">
+            <label class="adv-checkbox-label">
+              <input type="checkbox" id="optSequential">
+              <span>Sequential download (streamable chunks)</span>
+            </label>
+            <label class="adv-checkbox-label">
+              <input type="checkbox" id="optAutoStart" checked>
+              <span>Auto-start swarm transfers immediately</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="modal-footer-row">
+        <button class="btn-modal-cancel" id="btnCancelAddModal" type="button">Cancel</button>
+        <button class="btn-modal-start" id="btnConfirmMagnet" type="button">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <polyline points="19 12 12 19 5 12"></polyline>
+          </svg>
+          <span>Start Download</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       REMOVE SWARM MODAL
+       ========================================================================= -->
+  <div id="deleteSwarmModal" class="haven-modal-backdrop hidden">
+    <div class="haven-modal-card delete-modal">
+      <div class="modal-header-row">
+        <div class="modal-header-titles">
+          <h2 class="modal-main-title">Remove Download</h2>
+          <p class="modal-sub-title" id="deleteSwarmTitle">—</p>
+        </div>
+        <button class="modal-close-btn" id="btnCloseDeleteModal">✕</button>
+      </div>
+
+      <div class="delete-options-list">
+        <label class="delete-choice-card active" id="optKeepData">
+          <input type="radio" name="deleteOption" value="keep" checked>
+          <div class="choice-text-col">
+            <span class="choice-title">Disconnect swarm & retain local files</span>
+            <span class="choice-desc">Terminates peer and swarm sockets. Your downloaded files remain safe on disk.</span>
+          </div>
+        </label>
+        <label class="delete-choice-card danger" id="optDeleteData">
+          <input type="radio" name="deleteOption" value="delete">
+          <div class="choice-text-col">
+            <span class="choice-title danger-text">Disconnect swarm & delete files permanently</span>
+            <span class="choice-desc">Permanently erases downloaded payload data from your storage drive.</span>
+          </div>
+        </label>
+      </div>
+
+      <div class="modal-footer-row">
+        <button class="btn-modal-cancel" id="btnCancelDelete">Cancel</button>
+        <button class="btn-modal-start danger-btn" id="btnConfirmDelete">Confirm Removal</button>
       </div>
     </div>
-  </footer>
+  </div>
 
-  <!-- Drag and Drop Overlay for .torrent files -->
+  <!-- =========================================================================
+       FLOW CONTROL & TRAFFIC THROTTLE MODAL
+       ========================================================================= -->
+  <div id="trafficThrottleModal" class="haven-modal-backdrop hidden">
+    <div class="haven-modal-card throttle-modal">
+      <div class="modal-header-row">
+        <div class="modal-header-titles">
+          <h2 class="modal-main-title">Flow Control & QoS</h2>
+          <p class="modal-sub-title">Govern bandwidth rates and peer wire connections at the kernel socket layer</p>
+        </div>
+        <button class="modal-close-btn" id="btnCloseThrottleModal">✕</button>
+      </div>
+
+      <div class="throttle-presets-row">
+        <button class="preset-pill-btn active" data-preset="unlimited" id="presetUnlimited">Unlimited</button>
+        <button class="preset-pill-btn" data-preset="gaming" id="presetGaming">Gaming (1 MB/s)</button>
+        <button class="preset-pill-btn" data-preset="stealth" id="presetStealth">Stealth (250 KB/s)</button>
+      </div>
+
+      <div class="sliders-stack">
+        <div class="slider-field">
+          <div class="slider-label-row">
+            <label for="throttleDownSlider">Max Download Speed</label>
+            <span class="slider-val-tag" id="throttleDownVal">Unlimited</span>
+          </div>
+          <input type="range" id="throttleDownSlider" min="0" max="25000" step="250" value="0">
+        </div>
+
+        <div class="slider-field">
+          <div class="slider-label-row">
+            <label for="throttleUpSlider">Max Upload Speed</label>
+            <span class="slider-val-tag" id="throttleUpVal">Unlimited</span>
+          </div>
+          <input type="range" id="throttleUpSlider" min="0" max="10000" step="100" value="0">
+        </div>
+
+        <div class="slider-field">
+          <div class="slider-label-row">
+            <label for="throttleWiresSlider">Max Peer Wires</label>
+            <span class="slider-val-tag" id="throttleWiresVal">60 Wires</span>
+          </div>
+          <input type="range" id="throttleWiresSlider" min="5" max="150" step="5" value="60">
+        </div>
+      </div>
+
+      <div class="modal-footer-row">
+        <button class="btn-modal-cancel" id="btnResetThrottle">Reset</button>
+        <button class="btn-modal-start" id="btnApplyThrottle">Apply Limits</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- FLOATING CONTEXT MENU -->
+  <div id="swarmContextMenu" class="haven-context-menu hidden">
+    <!-- Group 1: Flow & Swarm Metrics -->
+    <div class="context-item" id="menuActionTogglePause">
+      <div class="context-item-left">
+        <span class="context-icon" id="menuActionPauseIcon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="4" width="4" height="16" rx="1"></rect>
+            <rect x="14" y="4" width="4" height="16" rx="1"></rect>
+          </svg>
+        </span>
+        <span id="menuActionPauseLabel">Pause Transfer</span>
+      </div>
+      <span class="context-shortcut">Space</span>
+    </div>
+
+    <div class="context-item" id="menuActionForceStart">
+      <div class="context-item-left">
+        <span class="context-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+        </span>
+        <span>Force Start (Bypass)</span>
+      </div>
+    </div>
+
+    <div class="context-item" id="menuActionDeepInspect">
+      <div class="context-item-left">
+        <span class="context-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="2" y1="12" x2="22" y2="12"></line>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+          </svg>
+        </span>
+        <span>Deep Inspect Swarm...</span>
+      </div>
+      <span class="context-shortcut">Ctrl+I</span>
+    </div>
+
+    <div class="context-divider"></div>
+
+    <!-- Group 2: Files & Streaming -->
+    <div class="context-item" id="menuActionOpenFolder">
+      <div class="context-item-left">
+        <span class="context-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+          </svg>
+        </span>
+        <span>Open in Folder</span>
+      </div>
+      <span class="context-shortcut">Enter</span>
+    </div>
+
+    <div class="context-item" id="menuActionSequential">
+      <div class="context-item-left">
+        <span class="context-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polygon points="10 8 16 12 10 16 10 8" fill="currentColor"></polygon>
+          </svg>
+        </span>
+        <span>Sequential Stream</span>
+      </div>
+      <span class="context-check hidden" id="menuActionSequentialCheck">✓</span>
+    </div>
+
+    <div class="context-item" id="menuActionChangeVault">
+      <div class="context-item-left">
+        <span class="context-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+        </span>
+        <span>Change Save Vault...</span>
+      </div>
+    </div>
+
+    <div class="context-divider"></div>
+
+    <!-- Group 3: Bandwidth & Swarm Maintenance -->
+    <div class="context-item context-has-submenu" id="menuActionFlowPriority">
+      <div class="context-item-left">
+        <span class="context-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line>
+            <line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line>
+            <line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line>
+          </svg>
+        </span>
+        <span>Flow Priority</span>
+      </div>
+      <span class="context-arrow">›</span>
+
+      <!-- Secondary Sub-Menu -->
+      <div class="context-submenu" id="flowPrioritySubmenu">
+        <div class="context-item" data-priority="normal" id="subPriorityNormal">
+          <div class="context-item-left">
+            <span class="priority-bullet">●</span>
+            <span>Normal Flow</span>
+          </div>
+          <span class="context-shortcut">1.0x</span>
+        </div>
+        <div class="context-item" data-priority="high" id="subPriorityHigh">
+          <div class="context-item-left">
+            <span class="priority-bullet">^</span>
+            <span>High Priority</span>
+          </div>
+          <span class="context-shortcut">Top</span>
+        </div>
+        <div class="context-item" data-priority="eco" id="subPriorityEco">
+          <div class="context-item-left">
+            <span class="priority-bullet">☾</span>
+            <span>Eco / Background</span>
+          </div>
+        </div>
+        <div class="context-divider"></div>
+        <div class="context-item" id="subPriorityCustom">
+          <div class="context-item-left">
+            <span class="context-icon">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="4" y1="21" x2="4" y2="14"></line><line x1="12" y1="21" x2="12" y2="8"></line><line x1="20" y1="21" x2="20" y2="16"></line>
+              </svg>
+            </span>
+            <span>Set Custom Limit...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="context-item" id="menuActionVerifyChunks">
+      <div class="context-item-left">
+        <span class="context-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            <polyline points="9 12 11 14 15 10"></polyline>
+          </svg>
+        </span>
+        <span>Verify Local Chunks</span>
+      </div>
+    </div>
+
+    <div class="context-item" id="menuActionRefreshTrackers">
+      <div class="context-item-left">
+        <span class="context-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+        </span>
+        <span>Refresh Trackers</span>
+      </div>
+    </div>
+
+    <div class="context-divider"></div>
+
+    <!-- Group 4: Clipboard Metadata -->
+    <div class="context-item" id="menuActionCopyMagnet">
+      <div class="context-item-left">
+        <span class="context-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+          </svg>
+        </span>
+        <span>Copy Magnet URI</span>
+      </div>
+      <span class="context-shortcut">Ctrl+C</span>
+    </div>
+
+    <div class="context-item" id="menuActionCopyInfoHash">
+      <div class="context-item-left">
+        <span class="context-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="4" y1="9" x2="20" y2="9"></line><line x1="4" y1="15" x2="20" y2="15"></line>
+            <line x1="10" y1="3" x2="8" y2="21"></line><line x1="16" y1="3" x2="14" y2="21"></line>
+          </svg>
+        </span>
+        <span>Copy InfoHash</span>
+      </div>
+    </div>
+
+    <div class="context-divider"></div>
+
+    <!-- Group 5: Destructive Actions -->
+    <div class="context-item danger-item" id="menuActionRemoveSwarm">
+      <div class="context-item-left">
+        <span class="context-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line>
+          </svg>
+        </span>
+        <span>Remove from Sanctuary</span>
+      </div>
+    </div>
+
+    <div class="context-item danger-item" id="menuActionDeleteFiles">
+      <div class="context-item-left">
+        <span class="context-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+        </span>
+        <span>Delete Torrent + Disk Files...</span>
+      </div>
+      <span class="context-shortcut danger-shortcut">Shift+Del</span>
+    </div>
+  </div>
+
+  <!-- Notification Toast -->
+  <div id="havenToast" class="haven-toast hidden"></div>
+
+  <!-- Full Window Drag & Drop Overlay -->
   <div id="dragDropOverlay" class="drag-drop-overlay hidden">
     <div class="drag-drop-card">
-      <div class="drag-icon">
-        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="7 10 12 15 17 10"></polyline>
-          <line x1="12" y1="15" x2="12" y2="3"></line>
-        </svg>
-      </div>
-      <div class="drag-title font-mono">INGEST PAYLOAD // DROP .TORRENT FILE HERE</div>
-      <div class="drag-subtitle">SafePath Confinement Active • Automated Bencode Structural Inspection</div>
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#1e4d3e" stroke-width="2">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+        <polyline points="17 8 12 3 7 8"></polyline>
+        <line x1="12" y1="3" x2="12" y2="15"></line>
+      </svg>
+      <h3>Drop .torrent file to add</h3>
+      <p>SafePath sanitization & quarantine checks will be performed before downloading</p>
     </div>
   </div>
 
-  <!-- Hidden native file picker for .torrent files -->
-  <input type="file" id="hiddenTorrentPicker" accept=".torrent" style="display: none;">
+  <input type="file" id="hiddenTorrentPicker" accept=".torrent" class="hidden">
 
-  <!-- Modal: Ingest Swarm & Package Configuration (Magnet & .torrent) -->
-  <div id="addMagnetModal" class="modal-backdrop hidden">
-    <div class="modal-card modal-card-wide">
-      <div class="modal-header">
-        <div class="modal-title-group">
-          <span class="modal-icon text-cyan" id="modalHeaderIcon">🧲</span>
-          <h2 id="modalHeaderTitle">INGEST PAYLOAD // SWARM & PACKAGE CONFIGURATION</h2>
-        </div>
-        <button class="icon-btn-sm" id="btnCloseMagnetModal">✕</button>
-      </div>
-      <div class="modal-body">
-        
-        <!-- Source Switcher Tabs -->
-        <div class="modal-source-tabs">
-          <button class="source-tab active" id="tabModeMagnet">
-            <span>🧲</span> MAGNET LINK
-          </button>
-          <button class="source-tab" id="tabModeTorrent">
-            <span>📦</span> .TORRENT PACKAGE FILE
-          </button>
-        </div>
-
-        <!-- Magnet Input Panel -->
-        <div id="panelSourceMagnet" class="source-panel">
-          <div class="form-group">
-            <div class="form-label-row">
-              <label for="modalMagnetUri">MAGNET URI PAYLOAD</label>
-              <span class="badge-status-sub font-mono" id="magnetHashBadge">AWAITING URI</span>
-            </div>
-            <textarea id="modalMagnetUri" class="form-textarea font-mono" rows="2" placeholder="Paste Magnet URI here (e.g. magnet:?xt=urn:btih:...)" spellcheck="false"></textarea>
-          </div>
-        </div>
-
-        <!-- Torrent Package File Panel -->
-        <div id="panelSourceTorrent" class="source-panel hidden">
-          <div class="form-group">
-            <label>PACKAGE FILE</label>
-            <div class="torrent-file-picker-box" id="dropZoneModal">
-              <div class="picker-file-info">
-                <span class="picker-icon">📦</span>
-                <div>
-                  <div class="picker-name font-mono" id="pickerFileName">No .torrent file selected</div>
-                  <div class="picker-size font-mono" id="pickerFileSize">Drag & drop a file here or click browse</div>
-                </div>
-              </div>
-              <button class="btn-ctrl btn-inspect" id="btnBrowseTorrentFile" type="button">
-                <span>[📂 BROWSE FILE]</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Swarm Display Name Row -->
-        <div class="form-group">
-          <label for="modalMagnetName">PAYLOAD / PACKAGE DISPLAY NAME</label>
-          <input type="text" id="modalMagnetName" class="form-input font-mono" placeholder="Auto-detected from URI or package metadata...">
-        </div>
-
-        <!-- PROMINENT DOWNLOAD DESTINATION CARD -->
-        <div class="save-location-card">
-          <div class="save-location-header">
-            <div class="save-label-group">
-              <span class="save-icon">📁</span>
-              <div>
-                <span class="save-title">WHERE SHOULD IT BE DOWNLOADED?</span>
-                <span class="save-sub font-mono">SafePath Confinement Protected Directory</span>
-              </div>
-            </div>
-            <button class="btn-ctrl btn-browse-folder" id="btnBrowseMagnetPath" type="button">
-              <span>📂 [CHOOSE FOLDER / BROWSE]</span>
-            </button>
-          </div>
-          <input type="text" class="save-path-input font-mono" id="modalMagnetPath" value="C:\Users\Abeesh\Downloads\Haven" spellcheck="false" placeholder="Enter target directory or click Browse...">
-          <div class="save-volume-info font-mono" id="modalVolumeInfo">
-            <span class="text-emerald">✓ 382.4 GB Free Space Available</span> on Volume (C:) • NVMe Direct I/O
-          </div>
-        </div>
-
-        <!-- Package Files Manifest Preview -->
-        <div class="package-files-preview" id="packageFilesPreview">
-          <div class="package-preview-header font-mono">
-            <span>PACKAGE CONTENTS (<span id="pkgFileCount">1</span> FILES)</span>
-            <span id="pkgTotalSize">1.24 GB TOTAL</span>
-          </div>
-          <div class="package-preview-list" id="pkgFilesList">
-            <div class="pkg-file-row">
-              <span class="pkg-file-icon">📄</span>
-              <span class="pkg-file-name font-mono" id="pkgPrimaryFileName">payload-data</span>
-              <span class="pkg-file-size font-mono" id="pkgPrimaryFileSize">1.24 GB</span>
-              <span class="verdict-tag font-mono status-safepath-ok">[SAFEPATH OK]</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Upload & Swarm Governance Settings -->
-        <div class="options-section-title">
-          <span>UPLOAD GOVERNANCE & SEEDING POLICY</span>
-          <span class="section-badge font-mono">ZERO-TRUST CONFINEMENT</span>
-        </div>
-
-        <div class="options-grid">
-          <div class="option-item">
-            <label for="optUploadLimit">UPLOAD RATE LIMIT</label>
-            <div class="input-unit-group">
-              <input type="number" id="optUploadLimit" class="form-input font-mono" min="0" step="50" value="0" placeholder="0">
-              <span class="unit-tag font-mono">kB/s (0 = ∞)</span>
-            </div>
-          </div>
-
-          <div class="option-item">
-            <label for="optSeedRatio">SEED RATIO TARGET</label>
-            <select id="optSeedRatio" class="form-select font-mono">
-              <option value="1.0">1.0x (Standard Fair Share)</option>
-              <option value="1.5">1.5x (Healthy Contribution)</option>
-              <option value="2.0">2.0x (Generous Seeder)</option>
-              <option value="0" selected>No Limit (Continuous Seeding)</option>
-            </select>
-          </div>
-
-          <div class="option-item">
-            <label for="optSequential">SEQUENTIAL DOWNLOAD ORDER</label>
-            <label class="toggle-switch">
-              <input type="checkbox" id="optSequential">
-              <span class="toggle-slider"></span>
-              <span class="toggle-label font-mono">Sequential chunking (stream priority)</span>
-            </label>
-          </div>
-
-          <div class="option-item">
-            <label for="optAutoStart">AUTO-START DOWNLOADING</label>
-            <label class="toggle-switch">
-              <input type="checkbox" id="optAutoStart" checked>
-              <span class="toggle-slider"></span>
-              <span class="toggle-label font-mono">Begin peer negotiation immediately</span>
-            </label>
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn-ctrl btn-inspect" id="btnCancelMagnet">Cancel</button>
-        <button class="btn-ctrl btn-load btn-primary-start" id="btnConfirmMagnet">
-          <span>[⬇ START DOWNLOAD]</span>
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal: Remove Torrent Confirmation -->
-  <div id="deleteSwarmModal" class="modal-backdrop hidden">
-    <div class="modal-card">
-      <div class="modal-header">
-        <div class="modal-title-group">
-          <span class="modal-icon text-danger">🗑</span>
-          <h2>REMOVE SWARM // SECURITY AUDIT</h2>
-        </div>
-        <button class="icon-btn-sm" id="btnCloseDeleteModal">✕</button>
-      </div>
-      <div class="modal-body">
-        <p class="modal-intro">
-          Target payload: <strong id="deleteSwarmTitle" class="font-mono text-emerald">swarm-name.iso</strong>
-        </p>
-        <div class="delete-path-box">
-          <span class="meta-label">CANONICAL STORAGE PATH:</span>
-          <span class="meta-val font-mono" id="deleteSwarmPath">F:\Torrent\Storage\payload</span>
-        </div>
-
-        <div class="delete-options-list">
-          <label class="delete-option-card active" id="optKeepData">
-            <input type="radio" name="deleteOption" value="keep" checked>
-            <div class="delete-option-content">
-              <span class="delete-opt-title">DISCONNECT SWARM & RETAIN FILES ON DISK</span>
-              <span class="delete-opt-desc">Immediately terminates peer, tracker, and DHT connections. Your downloaded data remains safe on your local drive.</span>
-            </div>
-          </label>
-
-          <label class="delete-option-card danger-card" id="optDeleteData">
-            <input type="radio" name="deleteOption" value="delete">
-            <div class="delete-option-content">
-              <span class="delete-opt-title text-danger">DISCONNECT & PERMANENTLY PURGE DISK PAYLOAD</span>
-              <span class="delete-opt-desc">Breaks all network sockets and permanently deletes the downloaded files from storage.</span>
-            </div>
-          </label>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn-ctrl btn-inspect" id="btnCancelDelete">Cancel</button>
-        <button class="btn-ctrl btn-load" id="btnConfirmDelete">[CONFIRM REMOVAL]</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- FLOATING SWARM ACTIONS CONTEXT MENU -->
-  <div id="swarmContextMenu" class="swarm-context-menu hidden">
-    <div class="menu-header font-mono" id="menuSwarmName">TORRENT ACTIONS</div>
-    <div class="menu-divider"></div>
-    <button class="menu-item" id="menuActionResume" type="button">
-      <span class="menu-icon">▶</span>
-      <span class="menu-label">Resume / Start Transfer</span>
-    </button>
-    <button class="menu-item" id="menuActionPause" type="button">
-      <span class="menu-icon">⏸</span>
-      <span class="menu-label">Pause Transfer</span>
-    </button>
-    <button class="menu-item" id="menuActionStop" type="button">
-      <span class="menu-icon">⏹</span>
-      <span class="menu-label">Stop Transfer</span>
-    </button>
-    <button class="menu-item" id="menuActionRecheck" type="button">
-      <span class="menu-icon">🔄</span>
-      <span class="menu-label">Force Re-Check (SHA-256)</span>
-    </button>
-    <div class="menu-divider"></div>
-    <button class="menu-item" id="menuActionOpenFolder" type="button">
-      <span class="menu-icon">📂</span>
-      <span class="menu-label">Open Download Folder</span>
-    </button>
-    <button class="menu-item" id="menuActionCopyMagnet" type="button">
-      <span class="menu-icon">🧲</span>
-      <span class="menu-label">Copy Magnet URI</span>
-    </button>
-    <button class="menu-item" id="menuActionCopyHash" type="button">
-      <span class="menu-icon">📋</span>
-      <span class="menu-label">Copy Info-Hash (BTIH)</span>
-    </button>
-    <div class="menu-divider"></div>
-    <button class="menu-item menu-item-quarantine" id="menuActionQuarantine" type="button">
-      <span class="menu-icon">🛡</span>
-      <span class="menu-label">Quarantine Swarm</span>
-    </button>
-    <button class="menu-item menu-item-release" id="menuActionReleaseQuarantine" type="button">
-      <span class="menu-icon">🔓</span>
-      <span class="menu-label">Trust & Release to Download</span>
-    </button>
-    <div class="menu-divider"></div>
-    <button class="menu-item menu-item-danger" id="menuActionDelete" type="button">
-      <span class="menu-icon">🗑</span>
-      <span class="menu-label">Remove / Delete...</span>
-    </button>
-  </div>
-
-  <!-- Modal: Traffic Throttle & QoS Control Panel -->
-  <div id="trafficThrottleModal" class="modal-backdrop hidden">
-    <div class="modal-card">
-      <div class="modal-header">
-        <div class="modal-title-group">
-          <span class="modal-icon text-cyan">📶</span>
-          <h2>TRAFFIC THROTTLE & QOS CONTROL PANEL</h2>
-        </div>
-        <button class="icon-btn-sm" id="btnCloseThrottleModal">✕</button>
-      </div>
-      <div class="modal-body">
-        <p class="modal-intro">
-          Govern WebTorrent client bandwidth consumption and wire connections at kernel socket layer.
-        </p>
-
-        <!-- Presets Row -->
-        <div class="throttle-presets-group">
-          <span class="meta-label">QOS BANDWIDTH PRESETS:</span>
-          <div class="preset-buttons">
-            <button class="btn-preset active" data-preset="unlimited" id="presetUnlimited">
-              <span class="preset-name">[UNLIMITED]</span>
-              <span class="preset-desc">Full line rate (Max speed)</span>
-            </button>
-            <button class="btn-preset" data-preset="gaming" id="presetGaming">
-              <span class="preset-name">[GAMING / LOW-LATENCY]</span>
-              <span class="preset-desc">1.0 MB/s Down • 100 KB/s Up (25 Wires)</span>
-            </button>
-            <button class="btn-preset" data-preset="stealth" id="presetStealth">
-              <span class="preset-name">[STEALTH / BACKGROUND]</span>
-              <span class="preset-desc">250 KB/s Down • 50 KB/s Up (15 Wires)</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Custom Sliders -->
-        <div class="throttle-controls">
-          <div class="throttle-field">
-            <div class="field-label-row">
-              <label for="throttleDownSlider">MAX DOWNLOAD RATE</label>
-              <span class="field-val font-mono" id="throttleDownVal">UNLIMITED</span>
-            </div>
-            <input type="range" id="throttleDownSlider" min="0" max="25000" step="250" value="0">
-            <div class="range-marks font-mono">
-              <span>0 (Unlimited)</span>
-              <span>5 MB/s</span>
-              <span>15 MB/s</span>
-              <span>25 MB/s</span>
-            </div>
-          </div>
-
-          <div class="throttle-field">
-            <div class="field-label-row">
-              <label for="throttleUpSlider">MAX UPLOAD RATE</label>
-              <span class="field-val font-mono" id="throttleUpVal">UNLIMITED</span>
-            </div>
-            <input type="range" id="throttleUpSlider" min="0" max="10000" step="100" value="0">
-            <div class="range-marks font-mono">
-              <span>0 (Unlimited)</span>
-              <span>2 MB/s</span>
-              <span>5 MB/s</span>
-              <span>10 MB/s</span>
-            </div>
-          </div>
-
-          <div class="throttle-field">
-            <div class="field-label-row">
-              <label for="throttleWiresSlider">MAX PEER WIRES (SOCKET CONNECTIONS)</label>
-              <span class="field-val font-mono" id="throttleWiresVal">60 WIRES</span>
-            </div>
-            <input type="range" id="throttleWiresSlider" min="5" max="150" step="5" value="60">
-            <div class="range-marks font-mono">
-              <span>5 Wires</span>
-              <span>60 (Default)</span>
-              <span>150 Wires</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="throttle-status-box font-mono" id="throttleStatusBox">
-          <span class="text-emerald">● STATUS:</span> Bandwidth cap active: <span id="throttleActiveSummary">UNLIMITED (Full line rate)</span>
-        </div>
-      </div>
-
-      <div class="modal-footer">
-        <button class="btn-ctrl btn-inspect" id="btnResetThrottle">Reset to Unlimited</button>
-        <button class="btn-ctrl btn-load btn-primary-start" id="btnApplyThrottle">
-          <span>[APPLY QOS LIMITS]</span>
-        </button>
-      </div>
-    </div>
-  </div>
-
+  <script src="mockSanctuaryData.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
