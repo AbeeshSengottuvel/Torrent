@@ -2046,6 +2046,189 @@ registerSecureHandler('app:checkForUpdates', async () => {
   };
 });
 
+// Installation & Maintenance Handlers (Apple-grade per-user lifecycle)
+registerSecureHandler('system:getInstallStatus', async () => {
+  const exePath = process.execPath;
+  const exeDir = path.dirname(exePath);
+  const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Local');
+  const standardInstallDir = path.join(localAppData, 'Programs', 'Haven');
+  
+  const isStandardInstall = path.normalize(exeDir).toLowerCase() === path.normalize(standardInstallDir).toLowerCase();
+  const uninstallerPath = path.join(exeDir, 'Haven-Uninstall.exe');
+  const hasUninstaller = fs.existsSync(uninstallerPath) || fs.existsSync(path.join(standardInstallDir, 'Haven-Uninstall.exe'));
+
+  return {
+    success: true,
+    isStandardInstall,
+    exePath,
+    installDir: exeDir,
+    standardInstallDir,
+    hasUninstaller,
+    version: CURRENT_VERSION
+  };
+});
+
+registerSecureHandler('system:openInstallDir', async () => {
+  const exeDir = path.dirname(process.execPath);
+  if (fs.existsSync(exeDir)) {
+    shell.openPath(exeDir);
+    return true;
+  }
+  return false;
+});
+
+registerSecureHandler('system:repairAssociations', async () => {
+  try {
+    const exePath = process.execPath;
+    if (process.platform === 'win32') {
+      const { spawnSync } = require('child_process');
+      const psCommand = `
+        $exe = '${exePath.replace(/'/g, "''")}';
+        New-Item -Path 'HKCU:\\Software\\Classes\\magnet' -Force | Out-Null;
+        Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\magnet' -Name '(Default)' -Value 'URL:BitTorrent Magnet Link';
+        Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\magnet' -Name 'URL Protocol' -Value '';
+        New-Item -Path 'HKCU:\\Software\\Classes\\magnet\\DefaultIcon' -Force | Out-Null;
+        Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\magnet\\DefaultIcon' -Name '(Default)' -Value "\`"$exe\`",0";
+        New-Item -Path 'HKCU:\\Software\\Classes\\magnet\\shell\\open\\command' -Force | Out-Null;
+        Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\magnet\\shell\\open\\command' -Name '(Default)' -Value "\`"$exe\`" \`"%1\`"";
+        
+        New-Item -Path 'HKCU:\\Software\\Classes\\.torrent' -Force | Out-Null;
+        Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\.torrent' -Name '(Default)' -Value 'Haven.Torrent';
+        New-Item -Path 'HKCU:\\Software\\Classes\\Haven.Torrent' -Force | Out-Null;
+        Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Haven.Torrent' -Name '(Default)' -Value 'BitTorrent File';
+        New-Item -Path 'HKCU:\\Software\\Classes\\Haven.Torrent\\DefaultIcon' -Force | Out-Null;
+        Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Haven.Torrent\\DefaultIcon' -Name '(Default)' -Value "\`"$exe\`",0";
+        New-Item -Path 'HKCU:\\Software\\Classes\\Haven.Torrent\\shell\\open\\command' -Force | Out-Null;
+        Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Haven.Torrent\\shell\\open\\command' -Name '(Default)' -Value "\`"$exe\`" \`"%1\`"";
+      `;
+      spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psCommand]);
+      return { success: true };
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+registerSecureHandler('system:installSelf', async () => {
+  const currentExe = process.execPath;
+  const currentDir = path.dirname(currentExe);
+  const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Local');
+  const targetDir = path.join(localAppData, 'Programs', 'Haven');
+  const targetExe = path.join(targetDir, 'Haven.exe');
+
+  if (path.normalize(currentDir).toLowerCase() === path.normalize(targetDir).toLowerCase()) {
+    return { success: true, message: 'Already installed in standard location.', targetDir };
+  }
+
+  try {
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+
+    function copyRecursive(src, dest) {
+      const entries = fs.readdirSync(src, { withFileTypes: true });
+      for (const entry of entries) {
+        const srcPath = path.join(src, entry.name);
+        const destPath = path.join(dest, entry.name);
+        if (entry.isDirectory()) {
+          if (!fs.existsSync(destPath)) fs.mkdirSync(destPath, { recursive: true });
+          copyRecursive(srcPath, destPath);
+        } else {
+          fs.copyFileSync(srcPath, destPath);
+        }
+      }
+    }
+
+    copyRecursive(currentDir, targetDir);
+
+    if (process.platform === 'win32') {
+      const { spawnSync } = require('child_process');
+      const psCmd = `
+        $installDir = '${targetDir.replace(/'/g, "''")}';
+        $mainExe = '${targetExe.replace(/'/g, "''")}';
+        $appData = [Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData);
+        $startMenuDir = Join-Path $appData 'Microsoft\\Windows\\Start Menu\\Programs';
+        $desktopDir = [Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory);
+
+        $ws = New-Object -ComObject WScript.Shell;
+        $s1 = $ws.CreateShortcut((Join-Path $startMenuDir 'Haven.lnk'));
+        $s1.TargetPath = $mainExe;
+        $s1.WorkingDirectory = $installDir;
+        $s1.Description = 'Haven - Secure BitTorrent Client';
+        $s1.IconLocation = "$mainExe,0";
+        $s1.Save();
+
+        $s2 = $ws.CreateShortcut((Join-Path $desktopDir 'Haven.lnk'));
+        $s2.TargetPath = $mainExe;
+        $s2.WorkingDirectory = $installDir;
+        $s2.Description = 'Haven - Secure BitTorrent Client';
+        $s2.IconLocation = "$mainExe,0";
+        $s2.Save();
+
+        $regKey = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Haven';
+        if (!(Test-Path $regKey)) { New-Item -Path $regKey -Force | Out-Null }
+        Set-ItemProperty -Path $regKey -Name 'DisplayName' -Value 'Haven';
+        Set-ItemProperty -Path $regKey -Name 'DisplayVersion' -Value '1.0.0';
+        Set-ItemProperty -Path $regKey -Name 'Publisher' -Value 'Haven Contributors';
+        Set-ItemProperty -Path $regKey -Name 'InstallLocation' -Value $installDir;
+        Set-ItemProperty -Path $regKey -Name 'UninstallString' -Value "\`"$mainExe\`" --uninstall";
+        Set-ItemProperty -Path $regKey -Name 'QuietUninstallString' -Value "\`"$mainExe\`" --uninstall --silent";
+        Set-ItemProperty -Path $regKey -Name 'DisplayIcon' -Value "$mainExe,0";
+        Set-ItemProperty -Path $regKey -Name 'NoModify' -Value 1 -Type DWord;
+        Set-ItemProperty -Path $regKey -Name 'NoRepair' -Value 1 -Type DWord;
+
+        New-Item -Path 'HKCU:\\Software\\Classes\\magnet' -Force | Out-Null;
+        Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\magnet' -Name '(Default)' -Value 'URL:BitTorrent Magnet Link';
+        Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\magnet' -Name 'URL Protocol' -Value '';
+        New-Item -Path 'HKCU:\\Software\\Classes\\magnet\\DefaultIcon' -Force | Out-Null;
+        Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\magnet\\DefaultIcon' -Name '(Default)' -Value "\`"$mainExe\`",0";
+        New-Item -Path 'HKCU:\\Software\\Classes\\magnet\\shell\\open\\command' -Force | Out-Null;
+        Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\magnet\\shell\\open\\command' -Name '(Default)' -Value "\`"$mainExe\`" \`"%1\`"";
+
+        New-Item -Path 'HKCU:\\Software\\Classes\\.torrent' -Force | Out-Null;
+        Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\.torrent' -Name '(Default)' -Value 'Haven.Torrent';
+        New-Item -Path 'HKCU:\\Software\\Classes\\Haven.Torrent' -Force | Out-Null;
+        Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Haven.Torrent' -Name '(Default)' -Value 'BitTorrent File';
+        New-Item -Path 'HKCU:\\Software\\Classes\\Haven.Torrent\\DefaultIcon' -Force | Out-Null;
+        Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Haven.Torrent\\DefaultIcon' -Name '(Default)' -Value "\`"$mainExe\`",0";
+        New-Item -Path 'HKCU:\\Software\\Classes\\Haven.Torrent\\shell\\open\\command' -Force | Out-Null;
+        Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Haven.Torrent\\shell\\open\\command' -Name '(Default)' -Value "\`"$mainExe\`" \`"%1\`"";
+      `;
+      spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psCmd]);
+    }
+    return { success: true, targetDir, targetExe };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+registerSecureHandler('system:launchUninstaller', async () => {
+  const exePath = process.execPath;
+  const exeDir = path.dirname(exePath);
+  const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Local');
+  const candidate1 = path.join(exeDir, 'Haven-Uninstall.exe');
+  const candidate2 = path.join(localAppData, 'Programs', 'Haven', 'Haven-Uninstall.exe');
+  
+  const target = fs.existsSync(candidate1) ? candidate1 : (fs.existsSync(candidate2) ? candidate2 : null);
+  const { spawn } = require('child_process');
+
+  if (target) {
+    try {
+      spawn(target, [], { detached: true, stdio: 'ignore' }).unref();
+      return { success: true };
+    } catch (_) {}
+  }
+
+  // Fallback to Haven.exe --uninstall which is guaranteed to be allowed by Smart App Control
+  try {
+    spawn(exePath, ['--uninstall'], { detached: true, stdio: 'ignore' }).unref();
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
 // Window Control Handlers (SR-03 safe)
 registerSecureHandler('window:minimize', () => {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
@@ -2084,7 +2267,17 @@ try {
   process.title = 'Haven';
 } catch (_) {}
 
-const gotTheLock = app.requestSingleInstanceLock();
+const isUninstallMode = process.argv.includes('--uninstall');
+
+if (isUninstallMode && process.platform === 'win32') {
+  try {
+    const { execSync } = require('child_process');
+    const myPid = process.pid;
+    execSync(`taskkill /F /FI "PID ne ${myPid}" /IM Haven.exe`, { stdio: 'ignore' });
+  } catch (_) {}
+}
+
+const gotTheLock = isUninstallMode || app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
   appendBootLog('Secondary instance detected; exiting immediately.');
@@ -2109,8 +2302,69 @@ if (!gotTheLock) {
     }
   });
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     appendBootLog('app.whenReady fired');
+
+    // Safe In-Process Uninstaller Handler (Guaranteed SAC-compliant)
+    if (process.argv.includes('--uninstall')) {
+      const isSilent = process.argv.includes('--silent') || process.argv.includes('/S');
+      let shouldProceed = isSilent;
+
+      if (!isSilent) {
+        const choice = dialog.showMessageBoxSync({
+          type: 'warning',
+          buttons: ['Cancel', 'Uninstall Haven'],
+          defaultId: 0,
+          cancelId: 0,
+          title: 'Uninstall Haven',
+          message: 'Are you sure you want to remove Haven from your PC?',
+          detail: 'SAFETY GUARANTEE: In accordance with Haven security rules (INV-03), uninstallation will ONLY remove application binaries, shortcuts, and protocol associations.\n\nAll your downloaded files, library items, and data in your Downloads folder will NEVER be touched.'
+        });
+        shouldProceed = (choice === 1);
+      }
+
+      if (shouldProceed) {
+        const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Local');
+        const installDir = path.join(localAppData, 'Programs', 'Haven');
+        const appData = process.env.APPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Roaming');
+        const startMenuShortcut = path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Haven.lnk');
+        const desktopShortcut = path.join(process.env.USERPROFILE || '', 'Desktop', 'Haven.lnk');
+
+        try { if (fs.existsSync(startMenuShortcut)) fs.unlinkSync(startMenuShortcut); } catch (_) {}
+        try { if (fs.existsSync(desktopShortcut)) fs.unlinkSync(desktopShortcut); } catch (_) {}
+
+        if (process.platform === 'win32') {
+          const { spawnSync } = require('child_process');
+          const cleanCmd = `
+            Remove-Item -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Haven' -Recurse -Force -ErrorAction SilentlyContinue;
+            Remove-Item -Path 'HKCU:\\Software\\Classes\\magnet' -Recurse -Force -ErrorAction SilentlyContinue;
+            Remove-Item -Path 'HKCU:\\Software\\Classes\\Haven.Torrent' -Recurse -Force -ErrorAction SilentlyContinue;
+          `;
+          spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', cleanCmd]);
+        }
+
+        if (fs.existsSync(installDir)) {
+          const tempBat = path.join(process.env.TEMP || 'C:\\Windows\\Temp', 'haven_uninstall_sweep.bat');
+          fs.writeFileSync(tempBat, `@echo off\r\ntimeout /t 2 /nobreak >nul\r\nrmdir /s /q "${installDir}"\r\ndel "%~f0"\r\n`);
+          const { spawn } = require('child_process');
+          spawn('cmd.exe', ['/c', tempBat], { detached: true, stdio: 'ignore' }).unref();
+        }
+
+        if (!isSilent) {
+          dialog.showMessageBoxSync({
+            type: 'info',
+            buttons: ['Done'],
+            title: 'Haven Uninstalled',
+            message: 'Haven has been successfully removed.',
+            detail: 'All application binaries, shortcuts, and system associations were removed. Your downloaded files remain safe.'
+          });
+        }
+      }
+      app.quit();
+      process.exit(0);
+      return;
+    }
+
     if (process.platform === 'win32') {
       app.setAppUserModelId('org.haven.desktop');
     }

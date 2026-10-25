@@ -26,10 +26,15 @@ $store.Close()
 
 # Sign local binaries
 $filesToSign = @(
+    "desktop\dist\Haven-Setup.exe",
+    "desktop\dist\Haven-Setup-1.0.0-x64.exe",
+    "desktop\dist\Haven-Uninstall.exe",
+    "desktop\dist\Haven-win32-x64\Haven.exe",
+    "desktop\dist\Haven-win32-x64\Haven-Uninstall.exe",
     "site\downloads\Haven-Setup.exe",
     "site\downloads\Haven-Setup-1.0.0-x64.exe",
     "$env:LOCALAPPDATA\Programs\Haven\Haven.exe",
-    "desktop\dist\Haven-win32-x64\Haven.exe"
+    "$env:LOCALAPPDATA\Programs\Haven\Haven-Uninstall.exe"
 )
 
 foreach ($filePath in $filesToSign) {

@@ -8,6 +8,12 @@ echo   Haven - Secure, Ad-Free BitTorrent Client
 echo ========================================================
 echo.
 
+if exist "%LOCALAPPDATA%\Programs\Haven\Haven.exe" (
+    echo Launching Installed Haven Client...
+    start "" /D "%LOCALAPPDATA%\Programs\Haven" "%LOCALAPPDATA%\Programs\Haven\Haven.exe"
+    goto :eof
+)
+
 if exist "%~dp0desktop\node_modules\electron\dist\electron.exe" (
     echo Launching Haven Client...
     start "" /D "%~dp0desktop" "%~dp0desktop\node_modules\electron\dist\electron.exe" "."

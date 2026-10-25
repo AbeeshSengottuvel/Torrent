@@ -36,24 +36,40 @@ $regKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Haven"
 if (!(Test-Path $regKey)) {
     New-Item -Path $regKey -Force | Out-Null
 }
+$uninstallExe = Join-Path $installDir "Haven-Uninstall.exe"
+$mainExe = Join-Path $installDir "Haven.exe"
+
 Set-ItemProperty -Path $regKey -Name "DisplayName" -Value "Haven"
 Set-ItemProperty -Path $regKey -Name "DisplayVersion" -Value "1.0.0"
 Set-ItemProperty -Path $regKey -Name "Publisher" -Value "Haven Contributors"
 Set-ItemProperty -Path $regKey -Name "InstallLocation" -Value $installDir
-Set-ItemProperty -Path $regKey -Name "UninstallString" -Value "powershell.exe -ExecutionPolicy Bypass -File `"$installDir\Uninstall.ps1`""
-Set-ItemProperty -Path $regKey -Name "DisplayIcon" -Value (Join-Path $installDir "Haven.exe")
+Set-ItemProperty -Path $regKey -Name "UninstallString" -Value "`"$uninstallExe`""
+Set-ItemProperty -Path $regKey -Name "QuietUninstallString" -Value "`"$uninstallExe`" --silent"
+Set-ItemProperty -Path $regKey -Name "DisplayIcon" -Value "$mainExe,0"
+Set-ItemProperty -Path $regKey -Name "NoModify" -Value 1 -Type DWord
+Set-ItemProperty -Path $regKey -Name "NoRepair" -Value 1 -Type DWord
 
-# Write uninstaller script that NEVER touches downloaded files
-$uninstallScript = @"
-Write-Host "Uninstalling Haven from $installDir..."
-Write-Host "[SAFETY] Downloaded files and user torrent directories are NEVER touched."
-if (Test-Path "$shortcutPath") { Remove-Item -Force "$shortcutPath" }
-if (Test-Path "$regKey") { Remove-Item -Recurse -Force "$regKey" }
-Start-Process -FilePath "cmd.exe" -ArgumentList "/c timeout /t 2 /nobreak >nul && rmdir /s /q `"$installDir`"" -WindowStyle Hidden
-Write-Host "Haven uninstalled successfully."
-"@
-Set-Content -Path (Join-Path $installDir "Uninstall.ps1") -Value $uninstallScript
+# Register magnet and .torrent protocols
+Write-Host "Registering magnet: and .torrent protocols..."
+$magKey = "HKCU:\Software\Classes\magnet"
+if (!(Test-Path $magKey)) { New-Item -Path $magKey -Force | Out-Null }
+Set-ItemProperty -Path $magKey -Name "(Default)" -Value "URL:BitTorrent Magnet Link"
+Set-ItemProperty -Path $magKey -Name "URL Protocol" -Value ""
+$magCmd = "HKCU:\Software\Classes\magnet\shell\open\command"
+if (!(Test-Path $magCmd)) { New-Item -Path $magCmd -Force | Out-Null }
+Set-ItemProperty -Path $magCmd -Name "(Default)" -Value "`"$mainExe`" `"%1`""
+
+$torKey = "HKCU:\Software\Classes\.torrent"
+if (!(Test-Path $torKey)) { New-Item -Path $torKey -Force | Out-Null }
+Set-ItemProperty -Path $torKey -Name "(Default)" -Value "Haven.Torrent"
+$progKey = "HKCU:\Software\Classes\Haven.Torrent"
+if (!(Test-Path $progKey)) { New-Item -Path $progKey -Force | Out-Null }
+Set-ItemProperty -Path $progKey -Name "(Default)" -Value "BitTorrent File"
+$progCmd = "HKCU:\Software\Classes\Haven.Torrent\shell\open\command"
+if (!(Test-Path $progCmd)) { New-Item -Path $progCmd -Force | Out-Null }
+Set-ItemProperty -Path $progCmd -Name "(Default)" -Value "`"$mainExe`" `"%1`""
 
 Write-Host ""
 Write-Host "[SUCCESS] Haven installed successfully into: $installDir"
 Write-Host "Start Menu shortcut created at: $shortcutPath"
+

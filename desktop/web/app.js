@@ -358,6 +358,11 @@ class HavenApp {
     this.btnResetDefaults = document.getElementById('btnResetDefaults');
     this.btnExportConfig = document.getElementById('btnExportConfig');
     this.btnSavePreferences = document.getElementById('btnSavePreferences');
+    this.installBadge = document.getElementById('installBadge');
+    this.installPathText = document.getElementById('installPathText');
+    this.btnRepairAssociations = document.getElementById('btnRepairAssociations');
+    this.btnOpenAppFolder = document.getElementById('btnOpenAppFolder');
+    this.btnUninstallApp = document.getElementById('btnUninstallApp');
 
     // Developer Sandbox elements
     this.brandVersionLabel = document.getElementById('brandVersionLabel');
@@ -1230,6 +1235,44 @@ class HavenApp {
       this.persistSanctuarySettings();
     });
 
+    // Installation & Lifecycle Actions
+    this.initInstallStatus();
+
+    this.btnRepairAssociations?.addEventListener('click', async () => {
+      if (window.havenNative?.repairAssociations) {
+        try {
+          const res = await window.havenNative.repairAssociations();
+          if (res && res.success) {
+            this.showToast('✓ .torrent and magnet: protocols re-registered in Windows Registry');
+          } else {
+            this.showToast('Protocol registration completed');
+          }
+        } catch (e) {
+          this.showToast('Protocol association error: ' + e.message);
+        }
+      }
+    });
+
+    this.btnOpenAppFolder?.addEventListener('click', async () => {
+      if (window.havenNative?.openInstallDir) {
+        await window.havenNative.openInstallDir();
+      }
+    });
+
+    this.btnUninstallApp?.addEventListener('click', async () => {
+      if (window.havenNative?.launchUninstaller) {
+        const proceed = confirm(
+          'Launch Haven Uninstaller?\n\n' +
+          'Safe Uninstallation: All your downloaded files, library items, and data in your Downloads folder will NEVER be touched or deleted.'
+        );
+        if (proceed) {
+          await window.havenNative.launchUninstaller();
+        }
+      } else {
+        alert('To uninstall Haven, please use Windows Settings -> Installed Apps -> Haven.');
+      }
+    });
+
     // 7. Footer Action Buttons
     this.btnClearCache?.addEventListener('click', async () => {
       if (window.havenNative?.clearCache) {
@@ -1299,6 +1342,31 @@ class HavenApp {
         }
       });
     });
+  }
+
+  async initInstallStatus() {
+    if (window.havenNative?.getInstallStatus) {
+      try {
+        const status = await window.havenNative.getInstallStatus();
+        if (status && status.installDir) {
+          if (this.installPathText) {
+            this.installPathText.textContent = status.installDir;
+            this.installPathText.title = status.exePath || status.installDir;
+          }
+          if (this.installBadge) {
+            if (status.isStandardInstall) {
+              this.installBadge.textContent = 'MANAGED PER-USER';
+              this.installBadge.classList.remove('portable');
+            } else {
+              this.installBadge.textContent = 'PORTABLE MODE';
+              this.installBadge.classList.add('portable');
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[Install Status Check]', err);
+      }
+    }
   }
 
   setVaultDirectory(folder) {

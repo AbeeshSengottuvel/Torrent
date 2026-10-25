@@ -204,6 +204,12 @@ const nativeBridge = {
   },
   clearCache: () => ipcRenderer.invoke('system:clearCache'),
   getHardwareStats: () => ipcRenderer.invoke('system:getHardwareStats'),
+  getInstallStatus: () => ipcRenderer.invoke('system:getInstallStatus'),
+  installSelf: () => ipcRenderer.invoke('system:installSelf'),
+  openInstallDir: () => ipcRenderer.invoke('system:openInstallDir'),
+  repairAssociations: () => ipcRenderer.invoke('system:repairAssociations'),
+  launchUninstaller: () => ipcRenderer.invoke('system:launchUninstaller'),
+
 
   // Teardown-Safe Event Streams
   onTorrentStatusBatch: (callback) => createSafeListener('torrent:statusBatch', callback),

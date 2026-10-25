@@ -1188,6 +1188,36 @@
                     </label>
                   </div>
                 </div>
+
+                <!-- Installation & Lifecycle Management Card (Apple-Grade System Panel) -->
+                <div class="install-lifecycle-card">
+                  <div class="install-meta-row">
+                    <div class="install-meta-info">
+                      <div style="display:flex; align-items:center; gap:8px;">
+                        <span class="install-pill-badge" id="installBadge">MANAGED PER-USER</span>
+                        <span style="font-size:11.5px; color:var(--text-muted); font-weight:600;">Haven v1.0.0</span>
+                      </div>
+                      <div class="install-path-container">
+                        <span class="install-path-label">Installed at:</span>
+                        <code class="install-path-value" id="installPathText">%LOCALAPPDATA%\Programs\Haven</code>
+                      </div>
+                    </div>
+                    <div class="install-action-buttons">
+                      <button type="button" class="btn-install-subaction" id="btnRepairAssociations" title="Re-registers .torrent file and magnet: URL protocol associations in Windows Registry">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                        <span>Repair Protocols</span>
+                      </button>
+                      <button type="button" class="btn-install-subaction" id="btnOpenAppFolder" title="Reveals the Haven application directory in Explorer">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                        <span>Reveal App</span>
+                      </button>
+                      <button type="button" class="btn-install-danger" id="btnUninstallApp" title="Safely remove Haven from this computer. Downloaded files remain untouched.">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                        <span>Uninstall Haven...</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </section>
 
               <!-- ROW 4: DEVELOPER & UI SANDBOX (Span 12, Hidden Unless Unlocked) -->

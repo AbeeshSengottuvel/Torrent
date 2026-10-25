@@ -1,0 +1,4 @@
+f7f12c9d3a6e03268ef7f4265b2b9de71e8c1db7f07d04ba187bb6aebd9d6a2e  Haven-Setup-1.0.0-x64.exe
+f7f12c9d3a6e03268ef7f4265b2b9de71e8c1db7f07d04ba187bb6aebd9d6a2e  Haven-Setup.exe
+e63eebd29c46a0568177d5579b5ce724102daa73c7afefb39417a9ed3dd72719  Haven-1.0.0-win-x64-portable.zip
+bc4873910e0a898c49dad83e00978493696de114127ac27a19a05ad0a3712b96  Haven-Uninstall.exe
