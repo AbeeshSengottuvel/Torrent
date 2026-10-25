@@ -117,16 +117,28 @@ class HavenApp {
     return [];
   }
 
-  saveSwarms() {
-    try {
-      if (this.useMockData) {
-        localStorage.setItem('haven_sandbox_mock_swarms', JSON.stringify(this.swarms));
-      } else {
-        const mockIds = new Set(['swarm-arch-2025', 'swarm-cosmos-4k', 'swarm-alpine-photos', 'swarm-debian-12']);
-        const realSwarms = this.swarms.filter(s => !mockIds.has(s.id) && !s.isMock);
-        localStorage.setItem('haven_alpine_swarms', JSON.stringify(realSwarms));
-      }
-    } catch (_) {}
+  saveSwarms(immediate = false) {
+    if (this._saveSwarmsTimer) {
+      clearTimeout(this._saveSwarmsTimer);
+      this._saveSwarmsTimer = null;
+    }
+    const doSave = () => {
+      try {
+        if (this.useMockData) {
+          localStorage.setItem('haven_sandbox_mock_swarms', JSON.stringify(this.swarms));
+        } else {
+          const mockIds = new Set(['swarm-arch-2025', 'swarm-cosmos-4k', 'swarm-alpine-photos', 'swarm-debian-12']);
+          const realSwarms = this.swarms.filter(s => !mockIds.has(s.id) && !s.isMock);
+          localStorage.setItem('haven_alpine_swarms', JSON.stringify(realSwarms));
+        }
+      } catch (_) {}
+    };
+
+    if (immediate) {
+      doSave();
+    } else {
+      this._saveSwarmsTimer = setTimeout(doSave, 500);
+    }
   }
 
   /* -------------------------------------------------------------------------
@@ -144,6 +156,7 @@ class HavenApp {
     this.btnBackFromInspect = document.getElementById('btnBackFromInspect');
     this.btnOpenSettingsBottom = document.getElementById('btnOpenSettingsBottom');
     this.btnSecurityMode = document.getElementById('btnSecurityMode');
+    this.btnNetguardIndicator = document.getElementById('btnNetguardIndicator');
 
     // Deep Inspect Studio Elements (Alpine Mist Single-Screen)
     this.inspectTorrentName = document.getElementById('inspectTorrentName');
@@ -384,21 +397,25 @@ class HavenApp {
     this.navDeepInspect?.classList.toggle('active', viewName === 'inspect');
     this.navSettingsStudio?.classList.toggle('active', viewName === 'settings');
 
+    const views = [
+      { name: 'transfers', el: this.transfersView },
+      { name: 'inspect', el: this.inspectView },
+      { name: 'settings', el: this.settingsView }
+    ];
+
+    views.forEach(v => {
+      if (!v.el) return;
+      const isActive = v.name === viewName;
+      v.el.classList.toggle('active', isActive);
+      v.el.classList.toggle('hidden', !isActive);
+    });
+
     if (viewName === 'settings') {
-      this.transfersView?.classList.add('hidden');
-      this.inspectView?.classList.add('hidden');
-      this.settingsView?.classList.remove('hidden');
       this.settingsSearchInput?.focus();
     } else if (viewName === 'inspect') {
-      this.transfersView?.classList.add('hidden');
-      this.settingsView?.classList.add('hidden');
-      this.inspectView?.classList.remove('hidden');
       this.renderDeepInspect();
       this.drawInspectMountainWaveform();
     } else {
-      this.inspectView?.classList.add('hidden');
-      this.settingsView?.classList.add('hidden');
-      this.transfersView?.classList.remove('hidden');
       this.render();
     }
   }
@@ -639,6 +656,30 @@ class HavenApp {
         btn.classList.add('active');
         this.applyThrottlePreset(btn.dataset.preset);
       });
+    });
+
+    this.throttleDownSlider?.addEventListener('input', () => {
+      const val = parseInt(this.throttleDownSlider.value, 10);
+      if (this.throttleDownVal) {
+        this.throttleDownVal.textContent = val === 0 ? 'Unlimited' : (val >= 1000 ? `${(val / 1000).toFixed(1)} MB/s` : `${val} KB/s`);
+      }
+      this.presetButtons?.forEach(b => b.classList.remove('active'));
+    });
+
+    this.throttleUpSlider?.addEventListener('input', () => {
+      const val = parseInt(this.throttleUpSlider.value, 10);
+      if (this.throttleUpVal) {
+        this.throttleUpVal.textContent = val === 0 ? 'Unlimited' : (val >= 1000 ? `${(val / 1000).toFixed(1)} MB/s` : `${val} KB/s`);
+      }
+      this.presetButtons?.forEach(b => b.classList.remove('active'));
+    });
+
+    this.throttleWiresSlider?.addEventListener('input', () => {
+      const val = parseInt(this.throttleWiresSlider.value, 10);
+      if (this.throttleWiresVal) {
+        this.throttleWiresVal.textContent = `${val} Wires`;
+      }
+      this.presetButtons?.forEach(b => b.classList.remove('active'));
     });
 
     // Delete Modal
@@ -1815,15 +1856,16 @@ class HavenApp {
     try {
       const parsed = await window.havenNative.parseTorrentFile(filePath);
       if (parsed) {
+        const totalSize = parsed.totalBytes || parsed.length || 0;
         this.pendingTorrentData = {
           name: parsed.name || 'Torrent Package',
           hash: parsed.infoHash,
-          sizeBytes: parsed.length || 0,
+          sizeBytes: totalSize,
           source: filePath,
           files: parsed.files || []
         };
         if (this.selectedTorrentFileName) this.selectedTorrentFileName.textContent = parsed.name || filePath;
-        if (this.selectedTorrentFileSize) this.selectedTorrentFileSize.textContent = `${this.formatBytes(parsed.length || 0)} • SafePath verified`;
+        if (this.selectedTorrentFileSize) this.selectedTorrentFileSize.textContent = `${this.formatBytes(totalSize)} • SafePath verified`;
       }
     } catch (_) {}
   }
@@ -1834,15 +1876,16 @@ class HavenApp {
       const base64 = reader.result.split(',')[1];
       if (window.havenNative?.parseTorrentFile) {
         window.havenNative.parseTorrentFile({ buffer: base64, path: file.name }).then(parsed => {
+          const totalSize = parsed.totalBytes || parsed.length || file.size || 0;
           this.pendingTorrentData = {
             name: parsed.name || file.name,
             hash: parsed.infoHash,
-            sizeBytes: parsed.length || file.size,
+            sizeBytes: totalSize,
             fileBuffer: base64,
             files: parsed.files || []
           };
           if (this.selectedTorrentFileName) this.selectedTorrentFileName.textContent = parsed.name || file.name;
-          if (this.selectedTorrentFileSize) this.selectedTorrentFileSize.textContent = `${this.formatBytes(parsed.length || file.size)} • SafePath verified`;
+          if (this.selectedTorrentFileSize) this.selectedTorrentFileSize.textContent = `${this.formatBytes(totalSize)} • SafePath verified`;
         });
       }
     };
@@ -1922,6 +1965,206 @@ class HavenApp {
   /* -------------------------------------------------------------------------
      RENDER TRANSFERS CARDS
      ------------------------------------------------------------------------- */
+  /* -------------------------------------------------------------------------
+     RENDER TRANSFERS CARDS (KEYED DOM RECONCILIATION - CRIT-02)
+     ------------------------------------------------------------------------- */
+  createCardElement(swarm) {
+    const card = document.createElement('div');
+    const isSelected = swarm.id === this.selectedId;
+    card.className = `transfer-card ${isSelected ? 'selected' : ''}`;
+    card.dataset.id = swarm.id;
+    card.dataset.state = swarm.state;
+
+    const catClass = this.getCategoryClass(swarm.category, swarm.name);
+    const catIcon = this.getCategorySvg(swarm.category, swarm.name);
+
+    const isDownloading = swarm.state === 'downloading';
+    const isSeeding = swarm.state === 'seeding';
+    const isCompleted = swarm.state === 'completed';
+
+    let speedsText = '';
+    if (isDownloading) speedsText = `↓ ${swarm.downSpeed}  ↑ ${swarm.upSpeed}`;
+    else if (isSeeding) speedsText = `↑ ${swarm.upSpeed}`;
+    else speedsText = 'Complete';
+
+    let metaText = '';
+    if (isDownloading) {
+      metaText = `${swarm.sizeFormatted} <span class="meta-bullet">•</span> Downloading <span class="meta-bullet">•</span> ${swarm.eta}`;
+    } else if (isSeeding) {
+      const ratioStr = swarm.ratio !== undefined && swarm.ratio !== null ? (typeof swarm.ratio === 'number' ? swarm.ratio.toFixed(2) : swarm.ratio) : '0.00';
+      metaText = `${swarm.sizeFormatted} <span class="meta-bullet">•</span> Seeding <span class="meta-bullet">•</span> Ratio ${ratioStr}`;
+    } else {
+      metaText = `${swarm.sizeFormatted} <span class="meta-bullet">•</span> Completed <span class="meta-bullet">•</span> Preserved locally`;
+    }
+
+    const actionBtnHtml = this.getCardActionBtnHtml(swarm);
+    let fillClass = '';
+    if (isCompleted) fillClass = 'complete-sage';
+    else if (isSeeding) fillClass = 'complete-pine';
+
+    card.innerHTML = `
+      <div class="card-left-group">
+        <div class="cat-icon-squircle ${catClass}">
+          ${catIcon}
+        </div>
+        <div class="card-info-col">
+          <div class="card-title-row">
+            <span class="card-title">${this.escapeHtml(swarm.name)}</span>
+            ${isDownloading || isSeeding ? '<span class="status-dot-active pulse"></span>' : ''}
+          </div>
+          <div class="card-meta-line">
+            ${metaText}
+          </div>
+        </div>
+      </div>
+
+      <div class="card-right-group">
+        <div class="card-progress-col">
+          <div class="card-speed-row">
+            <span>${speedsText}</span>
+          </div>
+          <div class="progress-track-sleek">
+            <div class="progress-fill-sleek ${fillClass}" style="width: ${swarm.progressPct}%"></div>
+          </div>
+        </div>
+        <span class="card-percentage">${swarm.progressPct}%</span>
+        <div class="card-action-slot">${actionBtnHtml}</div>
+      </div>
+    `;
+
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.card-action-btn')) return;
+      this.selectedId = swarm.id;
+      this.render();
+      this.updateInspector();
+    });
+
+    card.addEventListener('dblclick', () => {
+      this.selectedId = swarm.id;
+      this.switchView('inspect');
+    });
+
+    card.addEventListener('click', (e) => {
+      const pauseBtn = e.target.closest('.btn-pause-toggle');
+      if (pauseBtn) {
+        e.stopPropagation();
+        const current = this.swarms.find(s => s.id === swarm.id);
+        if (current && current.state === 'downloading') {
+          this.pauseSwarm(swarm.id);
+        } else {
+          this.resumeSwarm(swarm.id);
+        }
+      }
+    });
+
+    card.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      this.showContextMenu(e.clientX, e.clientY, swarm.id);
+    });
+
+    return card;
+  }
+
+  updateCardElement(card, swarm) {
+    const isSelected = swarm.id === this.selectedId;
+    card.classList.toggle('selected', isSelected);
+
+    const isDownloading = swarm.state === 'downloading';
+    const isSeeding = swarm.state === 'seeding';
+    const isCompleted = swarm.state === 'completed';
+
+    const titleRow = card.querySelector('.card-title-row');
+    const existingDot = titleRow?.querySelector('.status-dot-active');
+    if (isDownloading || isSeeding) {
+      if (!existingDot && titleRow) {
+        const dot = document.createElement('span');
+        dot.className = 'status-dot-active pulse';
+        titleRow.appendChild(dot);
+      }
+    } else if (existingDot) {
+      existingDot.remove();
+    }
+
+    let speedsText = '';
+    if (isDownloading) speedsText = `↓ ${swarm.downSpeed}  ↑ ${swarm.upSpeed}`;
+    else if (isSeeding) speedsText = `↑ ${swarm.upSpeed}`;
+    else speedsText = 'Complete';
+    const speedEl = card.querySelector('.card-speed-row span');
+    if (speedEl && speedEl.textContent !== speedsText) speedEl.textContent = speedsText;
+
+    let metaText = '';
+    if (isDownloading) {
+      metaText = `${swarm.sizeFormatted} <span class="meta-bullet">•</span> Downloading <span class="meta-bullet">•</span> ${swarm.eta}`;
+    } else if (isSeeding) {
+      const ratioStr = swarm.ratio !== undefined && swarm.ratio !== null ? (typeof swarm.ratio === 'number' ? swarm.ratio.toFixed(2) : swarm.ratio) : '0.00';
+      metaText = `${swarm.sizeFormatted} <span class="meta-bullet">•</span> Seeding <span class="meta-bullet">•</span> Ratio ${ratioStr}`;
+    } else {
+      metaText = `${swarm.sizeFormatted} <span class="meta-bullet">•</span> Completed <span class="meta-bullet">•</span> Preserved locally`;
+    }
+    const metaEl = card.querySelector('.card-meta-line');
+    if (metaEl && metaEl.innerHTML !== metaText) metaEl.innerHTML = metaText;
+
+    let fillClass = '';
+    if (isCompleted) fillClass = 'complete-sage';
+    else if (isSeeding) fillClass = 'complete-pine';
+
+    const fillEl = card.querySelector('.progress-fill-sleek');
+    if (fillEl) {
+      fillEl.className = `progress-fill-sleek ${fillClass}`;
+      fillEl.style.width = `${swarm.progressPct}%`;
+    }
+
+    const pctEl = card.querySelector('.card-percentage');
+    if (pctEl && pctEl.textContent !== `${swarm.progressPct}%`) {
+      pctEl.textContent = `${swarm.progressPct}%`;
+    }
+
+    if (card.dataset.state !== swarm.state) {
+      card.dataset.state = swarm.state;
+      const slot = card.querySelector('.card-action-slot');
+      if (slot) slot.innerHTML = this.getCardActionBtnHtml(swarm);
+    }
+  }
+
+  getCardActionBtnHtml(swarm) {
+    const isDownloading = swarm.state === 'downloading';
+    const isSeeding = swarm.state === 'seeding';
+    const isCompleted = swarm.state === 'completed';
+
+    if (isSeeding) {
+      return `
+        <button class="card-action-btn btn-completed btn-seeding" title="Seeding active">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+        </button>
+      `;
+    }
+    if (isCompleted) {
+      return `
+        <button class="card-action-btn btn-completed btn-finished" title="Completed / Preserved">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+        </button>
+      `;
+    }
+    return `
+      <button class="card-action-btn btn-pause-toggle" data-id="${swarm.id}" title="${isDownloading ? 'Pause transfer' : 'Resume transfer'}">
+        ${isDownloading ? `
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="4" width="4" height="16" rx="1"></rect>
+            <rect x="14" y="4" width="4" height="16" rx="1"></rect>
+          </svg>
+        ` : `
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+        `}
+      </button>
+    `;
+  }
+
   render() {
     if (!this.transfersListContainer) return;
 
@@ -1942,152 +2185,68 @@ class HavenApp {
       this.activeCountBadge.textContent = `${activeCount} active items`;
     }
 
-    this.transfersListContainer.innerHTML = '';
-
     if (filtered.length === 0) {
-      this.transfersListContainer.innerHTML = `
-        <div class="empty-sanctuary-card" id="emptySanctuaryCard">
-          <div class="empty-sanctuary-icon-wrap">
-            <svg class="mountain-pines-svg" viewBox="0 0 120 80" fill="none" stroke="currentColor">
-              <path d="M10 70 L38 24 L66 70 Z" stroke-width="1.8" stroke-linejoin="round" />
-              <path d="M38 24 L38 70" stroke-width="1.4" stroke-dasharray="2 3" opacity="0.6"/>
-              <path d="M50 70 L78 32 L106 70 Z" stroke-width="1.8" stroke-linejoin="round" />
-              <path d="M78 32 L78 70" stroke-width="1.4" stroke-dasharray="2 3" opacity="0.6"/>
-              <line x1="4" y1="70" x2="116" y2="70" stroke-width="1.8" stroke-linecap="round"/>
-              <path d="M28 48 L48 48" stroke-width="1.2" opacity="0.5"/>
-              <path d="M68 54 L88 54" stroke-width="1.2" opacity="0.5"/>
-              <circle cx="92" cy="18" r="7" stroke-width="1.4" stroke-dasharray="2 2" opacity="0.7"/>
-            </svg>
-          </div>
-          <h3 class="empty-sanctuary-title">Your Sanctuary is Quiet</h3>
-          <p class="empty-sanctuary-subtitle">No active transfers in this view. Drop a .torrent package anywhere or add a magnet link to begin.</p>
-          <button class="btn-empty-add-torrent" id="btnEmptyAddTorrent">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            <span>+ Add First Torrent</span>
-          </button>
-        </div>
-      `;
-      document.getElementById('btnEmptyAddTorrent')?.addEventListener('click', () => this.openAddModal());
-    } else {
-      filtered.forEach(swarm => {
-        const card = document.createElement('div');
-        const isSelected = swarm.id === this.selectedId;
-        card.className = `transfer-card ${isSelected ? 'selected' : ''}`;
-        card.dataset.id = swarm.id;
-
-        const catClass = this.getCategoryClass(swarm.category, swarm.name);
-        const catIcon = this.getCategorySvg(swarm.category, swarm.name);
-
-        const isDownloading = swarm.state === 'downloading';
-        const isSeeding = swarm.state === 'seeding';
-        const isCompleted = swarm.state === 'completed';
-
-        let speedsText = '';
-        if (isDownloading) speedsText = `↓ ${swarm.downSpeed}  ↑ ${swarm.upSpeed}`;
-        else if (isSeeding) speedsText = `↑ ${swarm.upSpeed}`;
-        else speedsText = 'Complete';
-
-        let metaText = '';
-        if (isDownloading) {
-          metaText = `${swarm.sizeFormatted} <span class="meta-bullet">•</span> Downloading <span class="meta-bullet">•</span> ${swarm.eta}`;
-        } else if (isSeeding) {
-          metaText = `${swarm.sizeFormatted} <span class="meta-bullet">•</span> Seeding <span class="meta-bullet">•</span> Ratio ${swarm.ratio || '2.4'}`;
-        } else {
-          metaText = `${swarm.sizeFormatted} <span class="meta-bullet">•</span> Completed <span class="meta-bullet">•</span> Preserved locally`;
-        }
-
-        const isFinished = swarm.progressPct >= 100 || isCompleted || isSeeding;
-        const actionBtnHtml = isSeeding ? `
-          <button class="card-action-btn btn-completed btn-seeding" title="Seeding active">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
-          </button>
-        ` : (isCompleted ? `
-          <button class="card-action-btn btn-completed btn-finished" title="Completed / Preserved">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
-          </button>
-        ` : `
-          <button class="card-action-btn btn-pause-toggle" data-id="${swarm.id}" title="${isDownloading ? 'Pause transfer' : 'Resume transfer'}">
-            ${isDownloading ? `
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                <rect x="6" y="4" width="4" height="16" rx="1"></rect>
-                <rect x="14" y="4" width="4" height="16" rx="1"></rect>
+      if (!this.transfersListContainer.querySelector('.empty-sanctuary-card')) {
+        this.transfersListContainer.innerHTML = `
+          <div class="empty-sanctuary-card" id="emptySanctuaryCard">
+            <div class="empty-sanctuary-icon-wrap">
+              <svg class="mountain-pines-svg" viewBox="0 0 120 80" fill="none" stroke="currentColor">
+                <path d="M10 70 L38 24 L66 70 Z" stroke-width="1.8" stroke-linejoin="round" />
+                <path d="M38 24 L38 70" stroke-width="1.4" stroke-dasharray="2 3" opacity="0.6"/>
+                <path d="M50 70 L78 32 L106 70 Z" stroke-width="1.8" stroke-linejoin="round" />
+                <path d="M78 32 L78 70" stroke-width="1.4" stroke-dasharray="2 3" opacity="0.6"/>
+                <line x1="4" y1="70" x2="116" y2="70" stroke-width="1.8" stroke-linecap="round"/>
+                <path d="M28 48 L48 48" stroke-width="1.2" opacity="0.5"/>
+                <path d="M68 54 L88 54" stroke-width="1.2" opacity="0.5"/>
+                <circle cx="92" cy="18" r="7" stroke-width="1.4" stroke-dasharray="2 2" opacity="0.7"/>
               </svg>
-            ` : `
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                <polygon points="5 3 19 12 5 21 5 3"></polygon>
-              </svg>
-            `}
-          </button>
-        `);
-
-        let fillClass = '';
-        if (isCompleted) fillClass = 'complete-sage';
-        else if (isSeeding) fillClass = 'complete-pine';
-
-        card.innerHTML = `
-          <div class="card-left-group">
-            <div class="cat-icon-squircle ${catClass}">
-              ${catIcon}
             </div>
-            <div class="card-info-col">
-              <div class="card-title-row">
-                <span class="card-title">${this.escapeHtml(swarm.name)}</span>
-                ${isDownloading || isSeeding ? '<span class="status-dot-active pulse"></span>' : ''}
-              </div>
-              <div class="card-meta-line">
-                ${metaText}
-              </div>
-            </div>
-          </div>
-
-          <div class="card-right-group">
-            <div class="card-progress-col">
-              <div class="card-speed-row">
-                <span>${speedsText}</span>
-              </div>
-              <div class="progress-track-sleek">
-                <div class="progress-fill-sleek ${fillClass}" style="width: ${swarm.progressPct}%"></div>
-              </div>
-            </div>
-            <span class="card-percentage">${swarm.progressPct}%</span>
-            ${actionBtnHtml}
+            <h3 class="empty-sanctuary-title">Your Sanctuary is Quiet</h3>
+            <p class="empty-sanctuary-subtitle">No active transfers in this view. Drop a .torrent package anywhere or add a magnet link to begin.</p>
+            <button class="btn-empty-add-torrent" id="btnEmptyAddTorrent">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              <span>+ Add First Torrent</span>
+            </button>
           </div>
         `;
-
-        card.addEventListener('click', (e) => {
-          if (e.target.closest('.card-action-btn')) return;
-          this.selectedId = swarm.id;
-          this.render();
-          this.updateInspector();
-        });
-
-        card.addEventListener('dblclick', () => {
-          this.selectedId = swarm.id;
-          this.switchView('inspect');
-        });
-
-        const pauseBtn = card.querySelector('.btn-pause-toggle');
-        pauseBtn?.addEventListener('click', (e) => {
-          e.stopPropagation();
-          if (swarm.state === 'downloading') {
-            this.pauseSwarm(swarm.id);
-          } else {
-            this.resumeSwarm(swarm.id);
-          }
-        });
-
-        card.addEventListener('contextmenu', (e) => {
-          e.preventDefault();
-          this.showContextMenu(e.clientX, e.clientY, swarm.id);
-        });
-
-        this.transfersListContainer.appendChild(card);
-      });
+        document.getElementById('btnEmptyAddTorrent')?.addEventListener('click', () => this.openAddModal());
+      }
+      this.updateInspector();
+      return;
     }
+
+    const emptyCard = this.transfersListContainer.querySelector('.empty-sanctuary-card');
+    if (emptyCard) emptyCard.remove();
+
+    const existingCardNodes = Array.from(this.transfersListContainer.querySelectorAll('.transfer-card'));
+    const existingCardsMap = new Map();
+    existingCardNodes.forEach(c => existingCardsMap.set(c.dataset.id, c));
+
+    const activeIds = new Set(filtered.map(s => s.id));
+
+    // Remove cards no longer in view
+    existingCardsMap.forEach((card, id) => {
+      if (!activeIds.has(id)) {
+        card.remove();
+        existingCardsMap.delete(id);
+      }
+    });
+
+    // Reconcile and position cards
+    filtered.forEach((swarm, idx) => {
+      let card = existingCardsMap.get(swarm.id);
+      if (card) {
+        this.updateCardElement(card, swarm);
+      } else {
+        card = this.createCardElement(swarm);
+        existingCardsMap.set(swarm.id, card);
+      }
+
+      const currentChildAtIndex = this.transfersListContainer.children[idx];
+      if (currentChildAtIndex !== card) {
+        this.transfersListContainer.insertBefore(card, currentChildAtIndex || null);
+      }
+    });
 
     this.updateInspector();
   }
@@ -2103,27 +2262,33 @@ class HavenApp {
       if (this.inspectorCurrentSpeed) this.inspectorCurrentSpeed.textContent = '0.0 MB/s';
       if (this.inspectorPeakSpeed) this.inspectorPeakSpeed.textContent = '0.0 MB/s — No active stream selected';
       if (this.activeInspectorTab === 'files' && this.filesManifestList) {
-        if (this.manifestFilesCount) this.manifestFilesCount.textContent = '0';
-        if (this.manifestTotalSize) this.manifestTotalSize.textContent = '0 B';
-        this.filesManifestList.innerHTML = `
-          <div style="padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px;">
-            No stream selected. Add or select a torrent to inspect file payloads.
-          </div>
-        `;
+        if (this._lastInspectorTorrentId !== null) {
+          this._lastInspectorTorrentId = null;
+          this._lastInspectorManifestKey = null;
+          if (this.manifestFilesCount) this.manifestFilesCount.textContent = '0';
+          if (this.manifestTotalSize) this.manifestTotalSize.textContent = '0 B';
+          this.filesManifestList.innerHTML = `
+            <div style="padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px;">
+              No stream selected. Add or select a torrent to inspect file payloads.
+            </div>
+          `;
+        }
       }
       return;
     }
 
-    if (this.inspectorTargetName) {
+    if (this.inspectorTargetName && this.inspectorTargetName.textContent !== selected.name) {
       this.inspectorTargetName.textContent = selected.name;
     }
 
-    if (this.inspectorCurrentSpeed) {
-      this.inspectorCurrentSpeed.textContent = selected.state === 'downloading' ? selected.downSpeed : (selected.state === 'seeding' ? selected.upSpeed : '0.0 MB/s');
+    const curSpeedText = selected.state === 'downloading' ? selected.downSpeed : (selected.state === 'seeding' ? selected.upSpeed : '0.0 MB/s');
+    if (this.inspectorCurrentSpeed && this.inspectorCurrentSpeed.textContent !== curSpeedText) {
+      this.inspectorCurrentSpeed.textContent = curSpeedText;
     }
 
-    if (this.inspectorPeakSpeed) {
-      this.inspectorPeakSpeed.textContent = selected.peakSpeed ? `Peak ${selected.peakSpeed}` : (selected.state === 'downloading' ? `Peak ${selected.downSpeed}` : '0.0 MB/s — Idle stream');
+    const peakText = selected.peakSpeed ? `Peak ${selected.peakSpeed}` : (selected.state === 'downloading' ? `Peak ${selected.downSpeed}` : '0.0 MB/s — Idle stream');
+    if (this.inspectorPeakSpeed && this.inspectorPeakSpeed.textContent !== peakText) {
+      this.inspectorPeakSpeed.textContent = peakText;
     }
 
     if (this.activeInspectorTab === 'files' && this.filesManifestList) {
@@ -2131,19 +2296,25 @@ class HavenApp {
         { name: selected.name, sizeFormatted: selected.sizeFormatted, progress: selected.progressPct, safepath: true }
       ];
 
-      if (this.manifestFilesCount) this.manifestFilesCount.textContent = files.length;
-      if (this.manifestTotalSize) this.manifestTotalSize.textContent = selected.sizeFormatted;
+      const manifestKey = `${selected.id}_${files.length}_` + files.map(f => `${f.progress}_${f.name}`).join(',');
+      if (this._lastInspectorManifestKey !== manifestKey) {
+        this._lastInspectorManifestKey = manifestKey;
+        this._lastInspectorTorrentId = selected.id;
 
-      this.filesManifestList.innerHTML = files.map(f => `
-        <div class="manifest-file-item">
-          <div class="manifest-file-left">
-            <span>📄</span>
-            <span style="font-weight: 500;">${this.escapeHtml(f.name)}</span>
-            <span style="color: #6b7280; font-size: 12px;">(${f.sizeFormatted || this.formatBytes(f.size || 0)})</span>
+        if (this.manifestFilesCount) this.manifestFilesCount.textContent = files.length;
+        if (this.manifestTotalSize) this.manifestTotalSize.textContent = selected.sizeFormatted;
+
+        this.filesManifestList.innerHTML = files.map(f => `
+          <div class="manifest-file-item">
+            <div class="manifest-file-left">
+              <span>📄</span>
+              <span style="font-weight: 500;">${this.escapeHtml(f.name)}</span>
+              <span style="color: #6b7280; font-size: 12px;">(${f.sizeFormatted || this.formatBytes(f.size || 0)})</span>
+            </div>
+            <span class="manifest-badge-ok">SafePath OK</span>
           </div>
-          <span class="manifest-badge-ok">SafePath OK</span>
-        </div>
-      `).join('');
+        `).join('');
+      }
     }
   }
 
@@ -2159,6 +2330,7 @@ class HavenApp {
       this.btnTabFiles?.classList.remove('active');
       this.inspectorSpeedView?.classList.remove('hidden');
       this.inspectorFilesView?.classList.add('hidden');
+      this.drawChart();
     }
     this.updateInspector();
   }
@@ -2288,13 +2460,17 @@ class HavenApp {
     }
 
     const activePeersCount = swarm.peers || (swarm.livePeers ? swarm.livePeers.length : 0);
-    const seeders = swarm.seedingPeers !== undefined ? swarm.seedingPeers : (isSeeding ? activePeersCount : Math.round(activePeersCount * 0.4));
-    const leechers = Math.max(0, activePeersCount - seeders);
+    const seeders = swarm.seedingPeers !== undefined ? swarm.seedingPeers : (isSeeding ? activePeersCount : 0);
+    const leechers = swarm.leechingPeers !== undefined ? swarm.leechingPeers : Math.max(0, activePeersCount - seeders);
     if (this.inspectActivePeers) {
       this.inspectActivePeers.textContent = `${activePeersCount} Active Peers`;
     }
     if (this.inspectSwarmBreakdown) {
-      this.inspectSwarmBreakdown.textContent = `${seeders} Seeders • ${leechers} Leechers`;
+      if (swarm.seedingPeers !== undefined || isSeeding) {
+        this.inspectSwarmBreakdown.textContent = `${seeders} Seeders • ${leechers} Leechers`;
+      } else {
+        this.inspectSwarmBreakdown.textContent = `${activePeersCount} Swarm Peers Connected`;
+      }
     }
     if (this.inspectPeersCountPill) {
       this.inspectPeersCountPill.textContent = activePeersCount;
@@ -2336,39 +2512,46 @@ class HavenApp {
         : `${verifiedPieces.toLocaleString()} Verified`;
     }
 
-    // Ground-Truth Piece Matrix (Bucketed from WebTorrent Bitfield)
+    // Ground-Truth Piece Matrix (Bucketed from WebTorrent Bitfield with diff cache - CRIT-03)
     if (this.pieceMatrixGrid) {
-      if (swarm.bitfield && Array.isArray(swarm.bitfield.buckets) && swarm.bitfield.buckets.length > 0) {
-        const bks = swarm.bitfield.buckets;
-        const pieceLenMb = swarm.pieceLength ? (swarm.pieceLength / (1024 * 1024)).toFixed(1) : '1.0';
-        let pillsHtml = '';
-        bks.forEach(b => {
-          const pillClass = b.state === 2 ? 'verified' : (b.state === 1 ? 'inflight' : 'pending');
-          const stateDesc = b.state === 2 ? 'Verified SHA-1' : (b.state === 1 ? `${Math.round(b.ratio * 100)}% Verified` : 'Pending');
-          const rangeLabel = b.startPiece === b.endPiece ? `#${b.startPiece + 1}` : `#${b.startPiece + 1}–#${b.endPiece + 1}`;
-          const tip = `Piece ${rangeLabel} • ${pieceLenMb} MB/chunk • ${stateDesc}`;
-          pillsHtml += `<div class="micro-piece-pill ${pillClass}" title="${tip}"></div>`;
-        });
-        this.pieceMatrixGrid.innerHTML = pillsHtml;
-      } else {
-        const samplePills = 96;
-        const verifiedCount = Math.round(samplePills * (pct / 100));
-        const inflightCount = isDownloading ? Math.min(4, samplePills - verifiedCount) : 0;
-        let pillsHtml = '';
-        for (let i = 0; i < samplePills; i++) {
-          let pillClass = 'pending';
-          let chunkNum = totalChunks > 0 ? Math.round(i * (totalChunks / samplePills)) + 1 : i + 1;
-          let tip = `Chunk #${chunkNum} • Pending`;
-          if (i < verifiedCount) {
-            pillClass = 'verified';
-            tip = `Chunk #${chunkNum} • Verified SHA-1`;
-          } else if (i < verifiedCount + inflightCount) {
-            pillClass = 'inflight';
-            tip = `Chunk #${chunkNum} • Active Wire Transfer`;
+      const pieceStateSig = swarm.bitfield && Array.isArray(swarm.bitfield.buckets) && swarm.bitfield.buckets.length > 0
+        ? `${swarm.id}_` + swarm.bitfield.buckets.map(b => `${b.state}_${b.startPiece}`).join(',')
+        : `${swarm.id}_sample_${pct}_${isDownloading}`;
+
+      if (this._lastPieceMatrixSig !== pieceStateSig || !this.pieceMatrixGrid.children.length) {
+        this._lastPieceMatrixSig = pieceStateSig;
+        if (swarm.bitfield && Array.isArray(swarm.bitfield.buckets) && swarm.bitfield.buckets.length > 0) {
+          const bks = swarm.bitfield.buckets;
+          const pieceLenMb = swarm.pieceLength ? (swarm.pieceLength / (1024 * 1024)).toFixed(1) : '1.0';
+          let pillsHtml = '';
+          bks.forEach(b => {
+            const pillClass = b.state === 2 ? 'verified' : (b.state === 1 ? 'inflight' : 'pending');
+            const stateDesc = b.state === 2 ? 'Verified SHA-1' : (b.state === 1 ? `${Math.round(b.ratio * 100)}% Verified` : 'Pending');
+            const rangeLabel = b.startPiece === b.endPiece ? `#${b.startPiece + 1}` : `#${b.startPiece + 1}–#${b.endPiece + 1}`;
+            const tip = `Piece ${rangeLabel} • ${pieceLenMb} MB/chunk • ${stateDesc}`;
+            pillsHtml += `<div class="micro-piece-pill ${pillClass}" title="${tip}"></div>`;
+          });
+          this.pieceMatrixGrid.innerHTML = pillsHtml;
+        } else {
+          const samplePills = 96;
+          const verifiedCount = Math.round(samplePills * (pct / 100));
+          const inflightCount = isDownloading ? Math.min(4, samplePills - verifiedCount) : 0;
+          let pillsHtml = '';
+          for (let i = 0; i < samplePills; i++) {
+            let pillClass = 'pending';
+            let chunkNum = totalChunks > 0 ? Math.round(i * (totalChunks / samplePills)) + 1 : i + 1;
+            let tip = `Chunk #${chunkNum} • Pending`;
+            if (i < verifiedCount) {
+              pillClass = 'verified';
+              tip = `Chunk #${chunkNum} • Verified SHA-1`;
+            } else if (i < verifiedCount + inflightCount) {
+              pillClass = 'inflight';
+              tip = `Chunk #${chunkNum} • Active Wire Transfer`;
+            }
+            pillsHtml += `<div class="micro-piece-pill ${pillClass}" title="${tip}"></div>`;
           }
-          pillsHtml += `<div class="micro-piece-pill ${pillClass}" title="${tip}"></div>`;
+          this.pieceMatrixGrid.innerHTML = pillsHtml;
         }
-        this.pieceMatrixGrid.innerHTML = pillsHtml;
       }
     }
 
@@ -2381,101 +2564,112 @@ class HavenApp {
     if (this.inspectTabTotalSize) this.inspectTabTotalSize.textContent = `Total Content: ${swarm.sizeFormatted || '0 B'}`;
 
     if (this.inspectManifestList) {
-      if (files.length === 0) {
-        this.inspectManifestList.innerHTML = `
-          <div class="inspect-file-row">
-            <div class="inspect-file-meta">
-              <div class="inspect-file-name" style="color: #667085;">Resolving swarm metadata...</div>
-              <div class="inspect-file-sub">Retrieving file manifest from connected peers</div>
-            </div>
-          </div>
-        `;
-      } else {
-        this.inspectManifestList.innerHTML = files.map((file, idx) => {
-          const isHigh = file.priority === 'high' || file.priority > 1;
-          const fileProgress = file.progress !== undefined ? file.progress : pct;
-          const sizeStr = file.sizeFormatted || (file.length ? this.formatBytes(file.length) : '0 B');
-          return `
+      const manifestSig = `${swarm.id}_${files.length}_` + files.map(f => `${f.progress}_${f.priority}_${f.name}`).join(',');
+      if (this._lastInspectManifestSig !== manifestSig || !this.inspectManifestList.children.length) {
+        this._lastInspectManifestSig = manifestSig;
+
+        if (files.length === 0) {
+          this.inspectManifestList.innerHTML = `
             <div class="inspect-file-row">
-              <div class="inspect-file-left">
-                <div class="inspect-file-icon-box">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>
-                </div>
-                <div class="inspect-file-meta">
-                  <div class="inspect-file-name">${this.escapeHtml(file.name)}</div>
-                  <div class="inspect-file-sub">${sizeStr} • ${fileProgress}% verified</div>
-                </div>
-              </div>
-              <div class="inspect-file-mid">
-                <div class="inspect-file-progressbar">
-                  <div class="inspect-file-progressfill" style="width: ${fileProgress}%"></div>
-                </div>
-                <span class="inspect-file-percent">${fileProgress}%</span>
-              </div>
-              <div class="inspect-file-right">
-                <button class="btn-file-prio ${isHigh ? 'prio-high' : 'prio-normal'}" data-index="${idx}">
-                  ${isHigh ? 'High Priority' : 'Normal'}
-                </button>
+              <div class="inspect-file-meta">
+                <div class="inspect-file-name" style="color: #667085;">Resolving swarm metadata...</div>
+                <div class="inspect-file-sub">Retrieving file manifest from connected peers</div>
               </div>
             </div>
           `;
-        }).join('');
+        } else {
+          this.inspectManifestList.innerHTML = files.map((file, idx) => {
+            const isHigh = file.priority === 'high' || file.priority > 1;
+            const fileProgress = file.progress !== undefined ? file.progress : pct;
+            const sizeStr = file.sizeFormatted || (file.length ? this.formatBytes(file.length) : '0 B');
+            return `
+              <div class="inspect-file-row">
+                <div class="inspect-file-left">
+                  <div class="inspect-file-icon-box">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>
+                  </div>
+                  <div class="inspect-file-meta">
+                    <div class="inspect-file-name">${this.escapeHtml(file.name)}</div>
+                    <div class="inspect-file-sub">${sizeStr} • ${fileProgress}% verified</div>
+                  </div>
+                </div>
+                <div class="inspect-file-mid">
+                  <div class="inspect-file-progressbar">
+                    <div class="inspect-file-progressfill" style="width: ${fileProgress}%"></div>
+                  </div>
+                  <span class="inspect-file-percent">${fileProgress}%</span>
+                </div>
+                <div class="inspect-file-right">
+                  <button class="btn-file-prio ${isHigh ? 'prio-high' : 'prio-normal'}" data-index="${idx}">
+                    ${isHigh ? 'High Priority' : 'Normal'}
+                  </button>
+                </div>
+              </div>
+            `;
+          }).join('');
 
-        this.inspectManifestList.querySelectorAll('.btn-file-prio').forEach(btn => {
-          btn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            const fIdx = parseInt(btn.dataset.index, 10);
-            if (files[fIdx]) {
-              files[fIdx].priority = files[fIdx].priority === 'high' ? 'normal' : 'high';
-              if (window.havenNative?.selectTorrentFiles) {
-                const selectedIndices = files.map((f, i) => (f.selected !== false ? i : -1)).filter(i => i >= 0);
-                await window.havenNative.selectTorrentFiles({ id: swarm.id, fileIndices: selectedIndices });
+          this.inspectManifestList.querySelectorAll('.btn-file-prio').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              const fIdx = parseInt(btn.dataset.index, 10);
+              if (files[fIdx]) {
+                files[fIdx].priority = files[fIdx].priority === 'high' ? 'normal' : 'high';
+                if (window.havenNative?.selectTorrentFiles) {
+                  const selectedIndices = files.map((f, i) => (f.selected !== false ? i : -1)).filter(i => i >= 0);
+                  await window.havenNative.selectTorrentFiles({ id: swarm.id, fileIndices: selectedIndices });
+                }
+                this._lastInspectManifestSig = null;
+                this.renderDeepInspect();
+                this.showToast(`Set priority: ${files[fIdx].name} → ${files[fIdx].priority === 'high' ? 'High' : 'Normal'}`);
               }
-              this.renderDeepInspect();
-              this.showToast(`Set priority: ${files[fIdx].name} → ${files[fIdx].priority === 'high' ? 'High' : 'Normal'}`);
-            }
+            });
           });
-        });
+        }
       }
     }
 
     if (this.inspectTrackersList) {
-      if (trackers.length === 0) {
-        this.inspectTrackersList.innerHTML = `
-          <div class="inspect-file-row">
-            <div class="inspect-file-meta">
-              <div class="inspect-file-name" style="color: #667085;">Public trackers active</div>
-              <div class="inspect-file-sub">DHT node routing actively querying bootstrap nodes</div>
-            </div>
-          </div>
-        `;
-      } else {
-        this.inspectTrackersList.innerHTML = trackers.map(t => `
-          <div class="inspect-file-row">
-            <div class="inspect-file-left">
-              <div class="inspect-file-icon-box" style="background: #EBF3F8; color: #3A5A78;">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>
-              </div>
-              <div class="inspect-file-meta">
-                <div class="inspect-file-name">${this.escapeHtml(t.host)}</div>
-                <div class="inspect-file-sub" style="color: #234F3E;">● ${t.status || 'Active'} • ${t.type || 'Tracker'}</div>
-              </div>
-            </div>
-            <div class="inspect-file-right">
-              <button class="btn-file-prio prio-normal btn-tracker-reannounce" data-host="${this.escapeHtml(t.host)}">Re-announce</button>
-            </div>
-          </div>
-        `).join('');
+      const trackerSig = `${swarm.id}_${trackers.length}_` + trackers.map(t => `${t.host}_${t.status}`).join(',');
+      if (this._lastInspectTrackerSig !== trackerSig || !this.inspectTrackersList.children.length) {
+        this._lastInspectTrackerSig = trackerSig;
 
-        this.inspectTrackersList.querySelectorAll('.btn-tracker-reannounce').forEach(btn => {
-          btn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            if (window.havenNative?.refreshTrackers) {
-              await window.havenNative.refreshTrackers(swarm.id);
-            }
-            this.showToast(`Re-announced swarm to ${btn.dataset.host}`);
+        if (trackers.length === 0) {
+          this.inspectTrackersList.innerHTML = `
+            <div class="inspect-file-row">
+              <div class="inspect-file-meta">
+                <div class="inspect-file-name" style="color: #667085;">Public trackers active</div>
+                <div class="inspect-file-sub">DHT node routing actively querying bootstrap nodes</div>
+              </div>
+            </div>
+          `;
+        } else {
+          this.inspectTrackersList.innerHTML = trackers.map(t => `
+            <div class="inspect-file-row">
+              <div class="inspect-file-left">
+                <div class="inspect-file-icon-box" style="background: #EBF3F8; color: #3A5A78;">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>
+                </div>
+                <div class="inspect-file-meta">
+                  <div class="inspect-file-name">${this.escapeHtml(t.host)}</div>
+                  <div class="inspect-file-sub" style="color: #234F3E;">● ${t.status || 'Active'} • ${t.type || 'Tracker'}</div>
+                </div>
+              </div>
+              <div class="inspect-file-right">
+                <button class="btn-file-prio prio-normal btn-tracker-reannounce" data-host="${this.escapeHtml(t.host)}">Re-announce</button>
+              </div>
+            </div>
+          `).join('');
+
+          this.inspectTrackersList.querySelectorAll('.btn-tracker-reannounce').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              if (window.havenNative?.refreshTrackers) {
+                await window.havenNative.refreshTrackers(swarm.id);
+              }
+              this.showToast(`Re-announced swarm to ${btn.dataset.host}`);
+            });
           });
-        });
+        }
       }
     }
 
@@ -2491,40 +2685,45 @@ class HavenApp {
       }).catch(() => {});
     }
 
-    // 5. Right Column Connected Peers (from real swarm.livePeers)
+    // 5. Right Column Connected Peers (from real swarm.livePeers with diff cache - CRIT-03)
     const peerNodes = Array.isArray(swarm.livePeers) ? swarm.livePeers : [];
     if (this.inspectPeersList) {
-      if (peerNodes.length === 0) {
-        this.inspectPeersList.innerHTML = `
-          <div class="peer-relay-row">
-            <div class="relay-info-col">
-              <div class="relay-location-client" style="color: #667085;">Searching swarm for peer connections...</div>
-              <div class="relay-sub-specs">DHT routing & public tracker announce active</div>
-            </div>
-            <div class="relay-speed-pill">0 B/s</div>
-          </div>
-        `;
-      } else {
-        this.inspectPeersList.innerHTML = peerNodes.map(p => {
-          const flag = p.protocol === 'webrtc' ? 'RTC' : (p.protocol && p.protocol.includes('uTP') ? 'uTP' : 'TCP');
-          const speedText = p.downloadSpeed > 0 
-            ? `↓ ${this.formatSpeed(p.downloadSpeed)}` 
-            : (p.uploadSpeed > 0 ? `↑ ${this.formatSpeed(p.uploadSpeed)}` : '0 B/s');
-          const encText = p.isEncrypted ? 'TLS 1.3 / Strict' : 'Plain uTP';
-          const chokeText = p.choked ? 'Choked' : 'Active Flow';
-          return `
+      const peersSig = `${swarm.id}_${peerNodes.length}_` + peerNodes.map(p => `${p.remoteAddress || p.maskedIp}_${p.downloadSpeed}_${p.uploadSpeed}_${p.choked}`).join(',');
+      if (this._lastInspectPeersSig !== peersSig || !this.inspectPeersList.children.length) {
+        this._lastInspectPeersSig = peersSig;
+
+        if (peerNodes.length === 0) {
+          this.inspectPeersList.innerHTML = `
             <div class="peer-relay-row">
-              <div class="relay-left-col">
-                <div class="country-flag-badge">${flag}</div>
-                <div class="relay-info-col">
-                  <div class="relay-location-client">${this.escapeHtml(p.maskedIp || p.remoteAddress || 'peer')} • ${this.escapeHtml(p.clientName || 'BitTorrent Peer')}</div>
-                  <div class="relay-sub-specs">${encText} • ${chokeText}</div>
-                </div>
+              <div class="relay-info-col">
+                <div class="relay-location-client" style="color: #667085;">Searching swarm for peer connections...</div>
+                <div class="relay-sub-specs">DHT routing & public tracker announce active</div>
               </div>
-              <div class="relay-speed-pill">${speedText}</div>
+              <div class="relay-speed-pill">0 B/s</div>
             </div>
           `;
-        }).join('');
+        } else {
+          this.inspectPeersList.innerHTML = peerNodes.map(p => {
+            const flag = p.protocol === 'webrtc' ? 'RTC' : (p.protocol && p.protocol.includes('uTP') ? 'uTP' : 'TCP');
+            const speedText = p.downloadSpeed > 0 
+              ? `↓ ${this.formatSpeed(p.downloadSpeed)}` 
+              : (p.uploadSpeed > 0 ? `↑ ${this.formatSpeed(p.uploadSpeed)}` : '0 B/s');
+            const encText = p.isEncrypted ? 'TLS 1.3 / Strict' : 'Plain uTP';
+            const chokeText = p.choked ? 'Choked' : 'Active Flow';
+            return `
+              <div class="peer-relay-row">
+                <div class="relay-left-col">
+                  <div class="country-flag-badge">${flag}</div>
+                  <div class="relay-info-col">
+                    <div class="relay-location-client">${this.escapeHtml(p.maskedIp || p.remoteAddress || 'peer')} • ${this.escapeHtml(p.clientName || 'BitTorrent Peer')}</div>
+                    <div class="relay-sub-specs">${encText} • ${chokeText}</div>
+                  </div>
+                </div>
+                <div class="relay-speed-pill">${speedText}</div>
+              </div>
+            `;
+          }).join('');
+        }
       }
     }
 
@@ -2536,16 +2735,26 @@ class HavenApp {
     if (!this.inspectWireEventsList) return;
 
     if (!this.liveKernelEvents || this.liveKernelEvents.length === 0) {
-      this.inspectWireEventsList.innerHTML = `
-        <div class="wire-event-row">
-          <div class="wire-event-desc">
-            <span class="wire-event-main" style="color: #667085;">Awaiting live kernel activity...</span>
-            <span class="wire-event-sub">Real-time socket, piece verification, and wire events will appear here</span>
+      if (this._lastWireSig !== 'empty') {
+        this._lastWireSig = 'empty';
+        this.inspectWireEventsList.innerHTML = `
+          <div class="wire-event-row">
+            <div class="wire-event-desc">
+              <span class="wire-event-main" style="color: #667085;">Awaiting live kernel activity...</span>
+              <span class="wire-event-sub">Real-time socket, piece verification, and wire events will appear here</span>
+            </div>
           </div>
-        </div>
-      `;
+        `;
+      }
       return;
     }
+
+    const firstEvent = this.liveKernelEvents[0];
+    const wireSig = `${this.liveKernelEvents.length}_${firstEvent?.timestamp}_${firstEvent?.tag}_${firstEvent?.message}`;
+    if (this._lastWireSig === wireSig && this.inspectWireEventsList.children.length > 0) {
+      return;
+    }
+    this._lastWireSig = wireSig;
 
     this.inspectWireEventsList.innerHTML = this.liveKernelEvents.slice(0, 20).map(e => {
       let tagClass = 'tag-wire';
@@ -2584,6 +2793,7 @@ class HavenApp {
      MOUNTAIN WAVEFORM RENDERER (65% HEIGHT AUTO-SCALING SPLINE)
      ------------------------------------------------------------------------- */
   drawInspectMountainWaveform() {
+    if (this.activeView !== 'inspect') return;
     if (!this.inspectWaveformCanvas || !this.inspectWaveformCtx) return;
     const canvas = this.inspectWaveformCanvas;
     const ctx = this.inspectWaveformCtx;
@@ -2628,11 +2838,11 @@ class HavenApp {
     if (this.waveformPeakFlag && this.waveformPeakVal) {
       const peakPercent = (maxIdx / (primaryPoints.length - 1)) * 100;
       this.waveformPeakFlag.style.left = `${Math.min(84, Math.max(16, peakPercent))}%`;
-      this.waveformPeakVal.textContent = maxP > 0 ? maxP.toFixed(1) : (swarm?.peakSpeed ? parseFloat(swarm.peakSpeed).toFixed(1) : '8.4');
+      this.waveformPeakVal.textContent = maxP > 0 ? maxP.toFixed(1) : (swarm?.peakSpeed ? parseFloat(swarm.peakSpeed).toFixed(1) : '0.0');
     }
 
     if (this.waveformNowTick) {
-      const curSpeed = isSeeding ? (swarm?.upSpeed || '3.4 MB/s') : (swarm?.downSpeed || '8.4 MB/s');
+      const curSpeed = isSeeding ? (swarm?.upSpeed || '0.0 KB/s') : (swarm?.downSpeed || '0.0 KB/s');
       this.waveformNowTick.textContent = `Now (${curSpeed})`;
     }
 
@@ -2737,6 +2947,7 @@ class HavenApp {
   }
 
   drawChart() {
+    if (this.activeView !== 'transfers' || this.activeInspectorTab !== 'speed') return;
     if (!this.flowCanvas || !this.flowCtx) return;
     const canvas = this.flowCanvas;
     const ctx = this.flowCtx;
@@ -2900,7 +3111,9 @@ class HavenApp {
       this.outflowHistory.shift();
       this.outflowHistory.push(upMB > 0 ? Number(upMB.toFixed(2)) : 0);
 
-      this.drawChart();
+      if (this.activeView === 'transfers' && this.activeInspectorTab === 'speed') {
+        this.drawChart();
+      }
 
       if (this.activeView === 'inspect') {
         this.drawInspectMountainWaveform();
@@ -3397,11 +3610,13 @@ class HavenApp {
   }
 
   escapeHtml(str) {
-    if (!str) return '';
+    if (str === null || str === undefined) return '';
     return String(str)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#x27;');
   }
 }
 

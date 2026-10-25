@@ -22,6 +22,62 @@ protocol.registerSchemesAsPrivileged([
 
 let mainWindow = null;
 
+// ==========================================================================
+// ASYNC BUFFERED & ROTATING BOOT LOGGER (CRIT-01, MAJ-01)
+// ==========================================================================
+const BOOT_LOG_PATH = path.join(__dirname, '..', 'haven_boot.log');
+const BOOT_LOG_BACKUP = path.join(__dirname, '..', 'haven_boot.log.1');
+const MAX_BOOT_LOG_BYTES = 512 * 1024; // 500 KB rotation limit
+
+let bootLogBuffer = [];
+let bootLogFlushTimer = null;
+
+function rotateBootLogIfNeeded() {
+  try {
+    if (fs.existsSync(BOOT_LOG_PATH)) {
+      const stats = fs.statSync(BOOT_LOG_PATH);
+      if (stats.size >= MAX_BOOT_LOG_BYTES) {
+        if (fs.existsSync(BOOT_LOG_BACKUP)) {
+          try { fs.unlinkSync(BOOT_LOG_BACKUP); } catch (_) {}
+        }
+        fs.renameSync(BOOT_LOG_PATH, BOOT_LOG_BACKUP);
+      }
+    }
+  } catch (_) {}
+}
+
+function flushBootLog(sync = false) {
+  if (bootLogBuffer.length === 0) return;
+  const chunk = bootLogBuffer.join('\n') + '\n';
+  bootLogBuffer = [];
+
+  if (sync) {
+    try {
+      rotateBootLogIfNeeded();
+      fs.appendFileSync(BOOT_LOG_PATH, chunk, 'utf8');
+    } catch (_) {}
+  } else {
+    rotateBootLogIfNeeded();
+    fs.promises.appendFile(BOOT_LOG_PATH, chunk, 'utf8').catch(() => {});
+  }
+}
+
+function appendBootLog(msg, sync = false) {
+  bootLogBuffer.push(`[${new Date().toISOString()}] ${msg}`);
+  if (sync || bootLogBuffer.length >= 50) {
+    if (bootLogFlushTimer) {
+      clearTimeout(bootLogFlushTimer);
+      bootLogFlushTimer = null;
+    }
+    flushBootLog(sync);
+  } else if (!bootLogFlushTimer) {
+    bootLogFlushTimer = setTimeout(() => {
+      bootLogFlushTimer = null;
+      flushBootLog(false);
+    }, 2000);
+  }
+}
+
 function setupCustomProtocol() {
   protocol.handle('haven', async (request) => {
     try {
@@ -45,7 +101,13 @@ function setupCustomProtocol() {
       const fullPath = path.join(basePath, safeRelPath);
 
       // Verify resolved path stays strictly within basePath
-      if (!fullPath.startsWith(basePath) || !fs.existsSync(fullPath)) {
+      if (!fullPath.startsWith(basePath)) {
+        return new Response('Not Found', { status: 404 });
+      }
+
+      try {
+        await fs.promises.access(fullPath, fs.constants.R_OK);
+      } catch (_) {
         return new Response('Not Found', { status: 404 });
       }
 
@@ -60,7 +122,7 @@ function setupCustomProtocol() {
       };
       const contentType = mimeTypes[ext] || 'application/octet-stream';
 
-      const fileBuffer = fs.readFileSync(fullPath);
+      const fileBuffer = await fs.promises.readFile(fullPath);
       return new Response(fileBuffer, {
         status: 200,
         headers: {
@@ -479,7 +541,7 @@ function resolvePayloadFileName(rawName, files) {
   } else if (isAudio) {
     return name + '.mp3';
   } else {
-    return name + '.mp4';
+    return name;
   }
 }
 
@@ -518,8 +580,6 @@ registerSecureHandler('app:deletePayloadFile', async (_event, payload) => {
   }
 });
 
-// ==========================================================================
-// REAL BITTORRENT ENGINE (LIVE PEERS, TRACKERS, & DISK I/O)
 // ==========================================================================
 // REAL BITTORRENT ENGINE (LIVE PEERS, TRACKERS, & DISK I/O)
 // ==========================================================================
@@ -1060,21 +1120,25 @@ registerSecureHandler('torrent:start', async (_event, payload) => {
         broadcastKernelLog('WIRE/UNCHOKE', `Peer ${addr} unchoked. Data flow pipeline open.`);
       });
 
-      let lastDlLog = 0;
       wire.on('download', (bytes) => {
+        torrent._accumDlBytes = (torrent._accumDlBytes || 0) + bytes;
         const now = Date.now();
-        if (now - lastDlLog > 3000) {
-          lastDlLog = now;
-          broadcastKernelLog('RECV', `Downloaded ${bytes} B block from ${addr} (${clientName})`);
+        if (!torrent._lastDlLogTime || (now - torrent._lastDlLogTime > 4000)) {
+          torrent._lastDlLogTime = now;
+          const kb = (torrent._accumDlBytes / 1024).toFixed(1);
+          broadcastKernelLog('RECV', `Swarm chunk pipe: downloaded ${kb} KB block from ${addr} (${clientName})`);
+          torrent._accumDlBytes = 0;
         }
       });
 
-      let lastUlLog = 0;
       wire.on('upload', (bytes) => {
+        torrent._accumUlBytes = (torrent._accumUlBytes || 0) + bytes;
         const now = Date.now();
-        if (now - lastUlLog > 3000) {
-          lastUlLog = now;
-          broadcastKernelLog('SEED', `Uploaded ${bytes} B block to ${addr} (${clientName})`);
+        if (!torrent._lastUlLogTime || (now - torrent._lastUlLogTime > 4000)) {
+          torrent._lastUlLogTime = now;
+          const kb = (torrent._accumUlBytes / 1024).toFixed(1);
+          broadcastKernelLog('SEED', `Swarm chunk pipe: uploaded ${kb} KB block to ${addr} (${clientName})`);
+          torrent._accumUlBytes = 0;
         }
       });
 
@@ -1435,14 +1499,21 @@ registerSecureHandler('torrent:refreshTrackers', async (_event, id) => {
   return false;
 });
 
-// Ground-Truth Asynchronous Disk Byte Verifier (Cached every 2500ms to preserve 60fps)
+// Ground-Truth Asynchronous Disk Byte Verifier (Cached with 10s TTL to preserve 60fps & prevent disk I/O contention)
 const diskBytesCache = new Map(); // swarmId -> { bytes: number, lastChecked: number }
 
 async function getTorrentBytesOnDisk(torrentId, torrent) {
   if (!torrent) return 0;
   const now = Date.now();
   const cached = diskBytesCache.get(torrentId);
-  if (cached && (now - cached.lastChecked < 2500)) {
+
+  // If completed and already verified on disk, return cached value immediately
+  if (torrent.done && cached && cached.bytes > 0) {
+    return cached.bytes;
+  }
+
+  // Cache TTL 10 seconds (was 2.5s)
+  if (cached && (now - cached.lastChecked < 10000)) {
     return cached.bytes;
   }
 
@@ -1585,6 +1656,7 @@ function extractTorrentWires(t) {
     const isEncrypted = Boolean(w.isEncrypted || w.encrypted || (w._cryptoHandshake && w._cryptoHandshake.state === 'encrypted') || w.type === 'webrtc');
     const choked = Boolean(w.peerChoking);
     const amChoking = Boolean(w.amChoking);
+    const isSeeder = Boolean(w.isSeeder || (w.peerPieces && typeof w.peerPieces.isComplete === 'function' && w.peerPieces.isComplete()));
 
     return {
       remoteAddress: rawAddr,
@@ -1598,7 +1670,8 @@ function extractTorrentWires(t) {
       uploaded: w.uploaded || 0,
       isEncrypted,
       choked,
-      amChoking
+      amChoking,
+      isSeeder
     };
   });
 }
@@ -1630,17 +1703,23 @@ function getConfigFilePath() {
   return path.join(app.getPath('userData'), 'haven-config.json');
 }
 
-function loadAppConfig() {
+let cachedAppConfig = null;
+
+function loadAppConfig(forceReload = false) {
+  if (cachedAppConfig && !forceReload) {
+    return cachedAppConfig;
+  }
   try {
     const cfgPath = getConfigFilePath();
     if (fs.existsSync(cfgPath)) {
       const data = fs.readFileSync(cfgPath, 'utf8');
-      return JSON.parse(data);
+      cachedAppConfig = JSON.parse(data);
+      return cachedAppConfig;
     }
   } catch (err) {
     console.warn('[Config Load Error]', err.message);
   }
-  return {
+  cachedAppConfig = {
     theme: 'alpine-mist',
     density: 'spacious',
     glassBlur: 16,
@@ -1654,6 +1733,7 @@ function loadAppConfig() {
     circadianDayLimit: -1,
     circadianNightLimit: 5000000
   };
+  return cachedAppConfig;
 }
 
 function saveAppConfig(newCfg) {
@@ -1661,6 +1741,7 @@ function saveAppConfig(newCfg) {
     const cfgPath = getConfigFilePath();
     const existing = loadAppConfig();
     const merged = Object.assign({}, existing, newCfg);
+    cachedAppConfig = merged;
     fs.writeFileSync(cfgPath, JSON.stringify(merged, null, 2), 'utf8');
 
     if (typeof merged.launchAtStartup === 'boolean') {
@@ -1763,7 +1844,7 @@ function updatePowerSaveBlocker() {
 }
 
 // Circadian speed scheduler background check (every 60 seconds)
-setInterval(() => {
+let circadianInterval = setInterval(() => {
   const cfg = loadAppConfig();
   if (!cfg.circadianEnabled || !torrentClient) return;
 
@@ -1826,6 +1907,8 @@ async function broadcastSwarmHeartbeat() {
       const liveWires = extractTorrentWires(t);
       const trackers = extractTorrentTrackers(t);
       const peerCount = t.numPeers || liveWires.length || 0;
+      const seedingPeers = liveWires.filter(w => w.isSeeder).length;
+      const leechingPeers = Math.max(0, liveWires.length - seedingPeers);
       globalActivePeers += peerCount;
 
       batch.push({
@@ -1846,6 +1929,8 @@ async function broadcastSwarmHeartbeat() {
         downloadSpeed: t.downloadSpeed || 0,
         uploadSpeed: t.uploadSpeed || 0,
         numPeers: peerCount,
+        seedingPeers,
+        leechingPeers,
         timeRemaining: t.paused ? Infinity : (t.timeRemaining || Infinity),
         paused: Boolean(t.paused),
         done: Boolean(t.done),
@@ -1987,12 +2072,6 @@ registerSecureHandler('window:isMaximized', () => {
   return mainWindow && !mainWindow.isDestroyed() ? mainWindow.isMaximized() : false;
 });
 
-function appendBootLog(msg) {
-  try {
-    fs.appendFileSync(path.join(__dirname, '..', 'haven_boot.log'), `[${new Date().toISOString()}] ${msg}\n`);
-  } catch (_) {}
-}
-
 function extractMagnetOrTorrent(args) {
   if (!Array.isArray(args)) return { magnet: null, torrent: null };
   const magnet = args.find(a => typeof a === 'string' && a.startsWith('magnet:?'));
@@ -2095,8 +2174,21 @@ if (!gotTheLock) {
 }
 
 app.on('before-quit', () => {
-  appendBootLog('app.before-quit fired');
+  appendBootLog('app.before-quit fired', true);
   app.isQuitting = true;
+  if (dhtBroadcastInterval) {
+    clearInterval(dhtBroadcastInterval);
+    dhtBroadcastInterval = null;
+  }
+  if (circadianInterval) {
+    clearInterval(circadianInterval);
+    circadianInterval = null;
+  }
+  if (statsTimer) {
+    clearTimeout(statsTimer);
+    statsTimer = null;
+  }
+  flushBootLog(true);
 });
 
 app.on('window-all-closed', () => {

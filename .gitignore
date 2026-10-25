@@ -25,3 +25,4 @@ site/downloads/*.zip
 
 # Runtime debug logs
 *.log
+*.log.*

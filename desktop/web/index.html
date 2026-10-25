@@ -489,14 +489,14 @@
                       <span class="engine-sub">Zero-copy ring buffer • Adaptive LRU</span>
                     </div>
                     <div class="engine-metric-card">
-                      <span class="engine-label">Disk Write Latency</span>
-                      <strong class="engine-val">0.4 ms (Direct I/O)</strong>
-                      <span class="engine-sub">Async POSIX aio / Windows IOCP Active</span>
+                      <span class="engine-label">Disk I/O Subsystem</span>
+                      <strong class="engine-val">Async Thread Pool</strong>
+                      <span class="engine-sub">Direct file streaming & chunk verification</span>
                     </div>
                     <div class="engine-metric-card">
                       <span class="engine-label">Active Wire Sockets</span>
                       <strong class="engine-val" id="inspectSocketCount">0 TCP / uTP Pipes</strong>
-                      <span class="engine-sub">ChaCha20-Poly1305 & TLS 1.3 Transport</span>
+                      <span class="engine-sub">Standard MSE/PE & TLS 1.3 Policy</span>
                     </div>
                     <div class="engine-metric-card">
                       <span class="engine-label">SafePath Confinement</span>
@@ -555,7 +555,7 @@
                   </div>
 
                   <div class="wire-feed-footer-status">
-                    <span>✓ Auto-scroll active • Protocol efficiency: 99.2% • Buffer Latency: 0.4ms</span>
+                    <span>✓ Auto-scroll active • Wire pipe telemetry • Non-blocking queue</span>
                   </div>
                 </div>
               </section>
