@@ -449,6 +449,14 @@ class HavenExperienceApp {
     this.btnOpenSettingsBottom = document.getElementById('btnOpenSettingsBottom');
     this.havenToast = document.getElementById('havenToast');
 
+    // Mobile Navigation & Speed Widgets
+    this.navMobileTransfers = document.getElementById('navMobileTransfers');
+    this.navMobileInspect = document.getElementById('navMobileInspect');
+    this.navMobileSettings = document.getElementById('navMobileSettings');
+    this.navMobileAdd = document.getElementById('navMobileAdd');
+    this.mobileSpeedDown = document.getElementById('mobileSpeedDown');
+    this.mobileSpeedUp = document.getElementById('mobileSpeedUp');
+
     // Context Menu
     this.swarmContextMenu = document.getElementById('swarmContextMenu');
     this.menuActionTogglePause = document.getElementById('menuActionTogglePause');
@@ -556,6 +564,12 @@ class HavenExperienceApp {
     this.btnSecurityMode?.addEventListener('click', () => this.switchView('settings'));
     this.btnNetguardIndicator?.addEventListener('click', () => this.switchView('settings'));
     this.inspectorTargetName?.addEventListener('click', () => this.switchView('inspect'));
+
+    // Mobile Bottom Nav Events
+    this.navMobileTransfers?.addEventListener('click', () => this.switchView('transfers'));
+    this.navMobileInspect?.addEventListener('click', () => this.switchView('inspect'));
+    this.navMobileSettings?.addEventListener('click', () => this.switchView('settings'));
+    this.navMobileAdd?.addEventListener('click', () => this.openAddModal());
 
     this.btnOpenAddModal?.addEventListener('click', () => this.openAddModal());
     this.btnCloseAddModal?.addEventListener('click', () => this.closeAddModal());
@@ -1192,6 +1206,8 @@ class HavenExperienceApp {
 
       if (this.sidebarSessionDown) this.sidebarSessionDown.textContent = `${downMB.toFixed(1)} MB/s`;
       if (this.sidebarSessionUp) this.sidebarSessionUp.textContent = `${upMB.toFixed(1)} MB/s`;
+      if (this.mobileSpeedDown) this.mobileSpeedDown.textContent = `${downMB.toFixed(1)} MB/s`;
+      if (this.mobileSpeedUp) this.mobileSpeedUp.textContent = `${upMB.toFixed(1)} MB/s`;
 
       this.inflowHistory.shift();
       this.inflowHistory.push(Math.max(1.0, downMB * (0.95 + Math.random() * 0.1)));
@@ -1496,6 +1512,11 @@ class HavenExperienceApp {
     this.navDeepInspect?.classList.toggle('active', viewName === 'inspect');
     this.navSettingsStudio?.classList.toggle('active', viewName === 'settings');
 
+    // Mobile Bottom Nav active item update
+    this.navMobileTransfers?.classList.toggle('active', viewName === 'transfers');
+    this.navMobileInspect?.classList.toggle('active', viewName === 'inspect');
+    this.navMobileSettings?.classList.toggle('active', viewName === 'settings');
+
     if (viewName === 'settings') {
       this.transfersView?.classList.add('hidden');
       this.inspectView?.classList.add('hidden');
@@ -1513,6 +1534,289 @@ class HavenExperienceApp {
       this.transfersView?.classList.remove('hidden');
       this.render();
     }
+  }
+
+  /* -------------------------------------------------------------------------
+     DEEP INSPECT STUDIO RENDERER
+     ------------------------------------------------------------------------- */
+  renderDeepInspect() {
+    const swarm = this.swarms.find(s => s.id === this.selectedId) || this.swarms[0];
+    if (!swarm) return;
+
+    const isDownloading = swarm.state === 'downloading';
+    const isSeeding = swarm.state === 'seeding';
+    const isCompleted = swarm.state === 'completed';
+    const pct = isSeeding || isCompleted ? 100 : (swarm.progressPct || 0);
+
+    // 1. Top Bar Swarm Header
+    if (this.inspectTorrentName) this.inspectTorrentName.textContent = swarm.name;
+    if (this.inspectCatIcon) {
+      this.inspectCatIcon.className = `inspect-cat-squircle ${this.getCategoryClass(swarm.category, swarm.name)}`;
+      this.inspectCatIcon.innerHTML = this.getCategorySvg(swarm.category, swarm.name);
+    }
+    if (this.inspectStatusBadge) {
+      if (isDownloading) {
+        this.inspectStatusBadge.className = 'inspect-status-badge badge-mint';
+        this.inspectStatusBadge.textContent = '● Downloading Active';
+      } else if (isSeeding) {
+        this.inspectStatusBadge.className = 'inspect-status-badge badge-blue';
+        this.inspectStatusBadge.textContent = `● Seeding • Ratio ${swarm.ratio || '2.4'}`;
+      } else if (swarm.state === 'paused') {
+        this.inspectStatusBadge.className = 'inspect-status-badge badge-subtle';
+        this.inspectStatusBadge.textContent = '⏸ Paused';
+      } else {
+        this.inspectStatusBadge.className = 'inspect-status-badge badge-subtle';
+        this.inspectStatusBadge.textContent = '● Completed';
+      }
+    }
+    if (this.inspectTorrentSub) {
+      this.inspectTorrentSub.textContent = `${swarm.sizeFormatted} • ${swarm.state.toUpperCase()} • ${swarm.files ? swarm.files.length : 1} files • SafePath Confined`;
+    }
+    if (this.inspectPauseText) {
+      this.inspectPauseText.textContent = isDownloading ? 'Pause Transfer' : (isSeeding ? 'Pause Seeding' : 'Resume Transfer');
+    }
+
+    // 2. Swarm Overview Grid
+    if (this.inspectActivePeers) {
+      this.inspectActivePeers.textContent = `${swarm.peers || 142} (${swarm.seedingPeers || 48} Seeding)`;
+    }
+    if (this.inspectInflowVal) {
+      this.inspectInflowVal.textContent = isDownloading ? (swarm.downSpeed || '8.4 MB/s') : '0.0 KB/s';
+    }
+    if (this.inspectInflowPeak) {
+      this.inspectInflowPeak.textContent = `↓ Peak ${swarm.peakSpeed || '11.2 MB/s'}`;
+    }
+    if (this.inspectOutflowVal) {
+      this.inspectOutflowVal.textContent = swarm.upSpeed || '1.2 MB/s';
+    }
+    if (this.inspectShareRatio) {
+      this.inspectShareRatio.textContent = `↑ Share ratio ${swarm.ratio || '0.42'}`;
+    }
+
+    // 3. Connected Peers List
+    if (this.inspectPeersList) {
+      const peers = swarm.peerNodes && swarm.peerNodes.length > 0 ? swarm.peerNodes : [
+        { cc: 'DE', city: 'Frankfurt, Germany', client: 'Haven Node 2.4', type: 'Direct Peer', latency: '19ms', security: 'TLS 1.3', rate: '2.4 MB/s' },
+        { cc: 'SE', city: 'Stockholm, Sweden', client: 'Libtorrent 1.28', type: 'Alpine Mesh Relay', latency: '28ms', security: 'TLS 1.3', rate: '1.9 MB/s' },
+        { cc: 'US', city: 'Seattle, WA', client: 'Transmission 4.0', type: 'DHT Lookup', latency: '72ms', security: 'TLS 1.3', rate: '1.6 MB/s' },
+        { cc: 'JP', city: 'Tokyo, Japan', client: 'Haven Node 2.2', type: 'Seeding Node', latency: '114ms', security: 'TLS 1.3', rate: '1.1 MB/s' }
+      ];
+
+      this.inspectPeersList.innerHTML = peers.map(p => `
+        <div class="peer-node-row">
+          <div class="peer-node-left">
+            <div class="peer-flag-squircle">${this.escapeHtml(p.cc || 'P2P')}</div>
+            <div class="peer-info-col">
+              <span class="peer-location-title">${this.escapeHtml(p.city || 'BitTorrent Peer')} • <span style="font-weight: 500; opacity: 0.8;">${this.escapeHtml(p.client || 'Haven Node')}</span></span>
+              <span class="peer-meta-desc">${this.escapeHtml(p.type || 'Direct Peer')} • Ping ${this.escapeHtml(p.latency || '< 30ms')}</span>
+            </div>
+          </div>
+          <div class="peer-node-right">
+            <span class="peer-tls-tag">🛡️ ${this.escapeHtml(p.security || 'TLS 1.3')}</span>
+            <span class="peer-speed-badge">⚡ ${this.escapeHtml(p.rate || '1.8 MB/s')}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // 4. Trackers List
+    if (this.inspectTrackersList) {
+      const trackers = swarm.trackers && swarm.trackers.length > 0 ? swarm.trackers : [
+        { host: 'tracker.archlinux.org:6969', latency: '< 28ms', status: 'OK • 92 seeds, 34 leechers', resync: 'Re-sync in 14m' },
+        { host: 'torrent.swarms.is:443', latency: '< 32ms', status: 'OK • 31 seeds, 18 leechers', resync: 'Re-sync in 8m' },
+        { host: 'Mainline DHT Routing Table', latency: '< 14ms', status: 'Nodes known: 1,482 • Bucket health 100%', resync: 'Continual auto-refresh' }
+      ];
+
+      if (this.inspectTrackersCount) {
+        this.inspectTrackersCount.textContent = `${trackers.length} Connected`;
+      }
+
+      this.inspectTrackersList.innerHTML = trackers.map(t => `
+        <div class="tracker-row">
+          <div class="tracker-left-col">
+            <span class="tracker-url-title">${this.escapeHtml(t.host)}</span>
+            <span class="tracker-status-sub">${this.escapeHtml(t.status)}</span>
+          </div>
+          <div class="tracker-right-col">
+            <span class="tracker-latency-pill">${this.escapeHtml(t.latency)}</span>
+            <span class="tracker-resync-text">${this.escapeHtml(t.resync)}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // 5. Piece Matrix Grid
+    if (this.pieceMatrixGrid) {
+      const totalPills = 96;
+      const verifiedCount = Math.round(totalPills * (pct / 100));
+      const inflightCount = isDownloading ? Math.min(4, totalPills - verifiedCount) : 0;
+
+      if (this.countVerifiedPieces) this.countVerifiedPieces.textContent = Math.round((swarm.totalChunks || 471) * (pct / 100));
+      if (this.countInflightPieces) this.countInflightPieces.textContent = inflightCount > 0 ? 14 : 0;
+      if (this.countPendingPieces) this.countPendingPieces.textContent = Math.max(0, (swarm.totalChunks || 471) - Math.round((swarm.totalChunks || 471) * (pct / 100)) - (inflightCount > 0 ? 14 : 0));
+
+      if (this.inspectPieceStatsText) {
+        this.inspectPieceStatsText.textContent = `${Math.round((swarm.totalChunks || 471) * (pct / 100))} of ${swarm.totalChunks || 471} chunks verified (${pct}%) • Chunk size: 3.0 MB`;
+      }
+
+      let pillsHtml = '';
+      for (let i = 0; i < totalPills; i++) {
+        let pillClass = 'chunk-pending';
+        let stateLabel = 'Pending';
+        if (i < verifiedCount) {
+          pillClass = 'chunk-verified';
+          stateLabel = 'Verified SHA-256 chunk';
+        } else if (i < verifiedCount + inflightCount) {
+          pillClass = 'chunk-inflight';
+          stateLabel = 'In-flight wire transfer';
+        }
+        pillsHtml += `<div class="piece-chunk-pill ${pillClass}" title="Chunk #${i + 1} • ${stateLabel}"></div>`;
+      }
+      this.pieceMatrixGrid.innerHTML = pillsHtml;
+    }
+
+    // 6. File Manifest & Content Plan
+    if (this.inspectManifestList) {
+      const files = swarm.files && swarm.files.length > 0 ? swarm.files : [
+        { name: swarm.name, sizeFormatted: swarm.sizeFormatted, progress: pct, priority: 'high' }
+      ];
+
+      if (this.inspectFilesHeaderCount) {
+        this.inspectFilesHeaderCount.textContent = `${files.length} items • ${swarm.sizeFormatted}`;
+      }
+
+      this.inspectManifestList.innerHTML = files.map((file, idx) => {
+        const filePct = file.progress !== undefined ? file.progress : pct;
+        const isHigh = file.priority === 'high';
+        return `
+          <div class="manifest-file-card">
+            <div class="manifest-file-left">
+              <div class="manifest-file-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+                  <polyline points="13 2 13 9 20 9"></polyline>
+                </svg>
+              </div>
+              <div class="manifest-file-meta">
+                <span class="manifest-file-name" title="${this.escapeHtml(file.name)}">${this.escapeHtml(file.name)}</span>
+                <span class="manifest-file-sub">${file.sizeFormatted || '1.38 GB'} • ${filePct}% verified</span>
+              </div>
+            </div>
+            <div class="manifest-file-center-bar" title="${filePct}% completed">
+              <div style="height: 100%; width: ${filePct}%; background-color: var(--pine-primary); border-radius: 3px;"></div>
+            </div>
+            <button class="manifest-prio-btn ${isHigh ? 'prio-high' : 'prio-normal'}" data-file-index="${idx}" style="font-size: 11px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border-subtle); background: var(--bg-card); cursor: pointer;">
+              ${isHigh ? '⚡ High Priority' : 'Normal'}
+            </button>
+          </div>
+        `;
+      }).join('');
+
+      this.inspectManifestList.querySelectorAll('.manifest-prio-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const fIdx = parseInt(btn.dataset.fileIndex, 10);
+          if (files[fIdx]) {
+            files[fIdx].priority = files[fIdx].priority === 'high' ? 'normal' : 'high';
+            this.renderDeepInspect();
+            this.showToast(`Set priority: ${files[fIdx].name} → ${files[fIdx].priority === 'high' ? 'High' : 'Normal'}`);
+          }
+        });
+      });
+    }
+
+    // 7. Mountain Waveform
+    this.drawInspectMountainWaveform();
+  }
+
+  /* -------------------------------------------------------------------------
+     MOUNTAIN WAVEFORM SPLINE RENDERER
+     ------------------------------------------------------------------------- */
+  drawInspectMountainWaveform() {
+    if (!this.inspectWaveformCanvas || !this.inspectWaveformCtx) return;
+    const canvas = this.inspectWaveformCanvas;
+    const ctx = this.inspectWaveformCtx;
+
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    const width = rect.width;
+    const height = rect.height;
+    ctx.clearRect(0, 0, width, height);
+
+    const points = this.inflowHistory;
+    const outflowPoints = this.outflowHistory;
+    const maxVal = Math.max(12.0, ...points, ...outflowPoints);
+    const stepX = width / (points.length - 1);
+    const paddingBottom = 20;
+    const chartHeight = height - paddingBottom - 12;
+
+    const getY = (val) => height - paddingBottom - (val / maxVal) * chartHeight;
+
+    // 1. Inflow Gradient Mountain Fill
+    ctx.beginPath();
+    ctx.moveTo(0, getY(points[0]));
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[i];
+      const p1 = points[i + 1];
+      const x0 = i * stepX;
+      const x1 = (i + 1) * stepX;
+      const y0 = getY(p0);
+      const y1 = getY(p1);
+      const cpX = (x0 + x1) / 2;
+      ctx.bezierCurveTo(cpX, y0, cpX, y1, x1, y1);
+    }
+    ctx.lineTo(width, height - paddingBottom);
+    ctx.lineTo(0, height - paddingBottom);
+    ctx.closePath();
+
+    const gradient = ctx.createLinearGradient(0, 10, 0, height - paddingBottom);
+    gradient.addColorStop(0, 'rgba(35, 79, 62, 0.28)');
+    gradient.addColorStop(1, 'rgba(35, 79, 62, 0.01)');
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    // 2. Inflow Solid Mountain Line
+    ctx.beginPath();
+    ctx.moveTo(0, getY(points[0]));
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[i];
+      const p1 = points[i + 1];
+      const x0 = i * stepX;
+      const x1 = (i + 1) * stepX;
+      const y0 = getY(p0);
+      const y1 = getY(p1);
+      const cpX = (x0 + x1) / 2;
+      ctx.bezierCurveTo(cpX, y0, cpX, y1, x1, y1);
+    }
+    ctx.strokeStyle = '#234F3E';
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([]);
+    ctx.stroke();
+
+    // 3. Outflow Dashed Line
+    ctx.beginPath();
+    ctx.moveTo(0, getY(outflowPoints[0]));
+    for (let i = 0; i < outflowPoints.length - 1; i++) {
+      const p0 = outflowPoints[i];
+      const p1 = outflowPoints[i + 1];
+      const x0 = i * stepX;
+      const x1 = (i + 1) * stepX;
+      const y0 = getY(p0);
+      const y1 = getY(p1);
+      const cpX = (x0 + x1) / 2;
+      ctx.bezierCurveTo(cpX, y0, cpX, y1, x1, y1);
+    }
+    ctx.strokeStyle = '#3A5A78';
+    ctx.lineWidth = 1.6;
+    ctx.setLineDash([4, 4]);
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   /* -------------------------------------------------------------------------
