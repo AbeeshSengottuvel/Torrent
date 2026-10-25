@@ -78,6 +78,11 @@ def scan_repository(root_dir: str):
     return violations
 
 def main():
+    if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     print(f"Scanning {root} for banned tracking/telemetry keywords...")
     violations = scan_repository(root)
