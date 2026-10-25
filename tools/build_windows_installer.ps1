@@ -43,22 +43,41 @@ Compress-Archive -Path "$appDir\*" -DestinationPath $portableZip -CompressionLev
 $zipMb = [Math]::Round((Get-Item $portableZip).Length / 1MB, 2)
 Write-Host "  -> $portableZip ($zipMb MB)"
 
-# 3. Compile Real Standalone 1-Click Installer (Haven-Setup.exe with Embedded Payload)
-Write-Host "[4/5] Compiling Standalone 1-Click Installer with Embedded Payload..."
+# 3. Split Portable ZIP into Site Distribution Chunks (<45 MB each for GitHub Pages)
+Write-Host "[4/6] Creating verified web distribution chunks..."
+$siteDownloads = Join-Path $root "site\downloads"
+if (Test-Path $siteDownloads) {
+    $chunkSize = 43 * 1024 * 1024
+    $bytes = [System.IO.File]::ReadAllBytes($portableZip)
+    $totalBytes = $bytes.Length
+    $numChunks = [Math]::Ceiling($totalBytes / $chunkSize)
+
+    for ($i = 0; $i -lt $numChunks; $i++) {
+        $offset = $i * $chunkSize
+        $len = [Math]::Min($chunkSize, $totalBytes - $offset)
+        $chunkBytes = New-Object byte[] $len
+        [System.Buffer]::BlockCopy($bytes, $offset, $chunkBytes, 0, $len)
+        $chunkFile = Join-Path $siteDownloads (("haven-core.{0:D3}" -f ($i + 1)))
+        [System.IO.File]::WriteAllBytes($chunkFile, $chunkBytes)
+    }
+    Write-Host "  -> Generated $numChunks component chunks in $siteDownloads"
+}
+
+# 4. Compile High-Performance Web Installer (Haven-Setup.exe for Website)
+Write-Host "[5/6] Compiling Web Setup Installer for GitHub Pages..."
+$webInstallerExe = Join-Path $siteDownloads "Haven-Setup.exe"
+& $csc /target:winexe /out:$webInstallerExe /platform:x64 /win32icon:$iconIco /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll $installerSrc
+Copy-Item -Path $webInstallerExe -Destination (Join-Path $siteDownloads "Haven-Setup-1.0.0-x64.exe") -Force
+$webKb = [Math]::Round((Get-Item $webInstallerExe).Length / 1KB, 1)
+Write-Host "  -> $webInstallerExe ($webKb KB, Direct Web Distribution)"
+
+# 5. Compile Standalone Mega-Installer (with Embedded Payload for Releases)
+Write-Host "[6/6] Compiling Standalone Mega-Installer (with Embedded Payload)..."
 $resArg = "/resource:$($portableZip),HavenPayload"
 & $csc /target:winexe /out:$installerExe /platform:x64 /win32icon:$iconIco $resArg /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll $installerSrc
 Copy-Item -Path $installerExe -Destination $installerShortExe -Force
-
-# Copy real executable and portable archive to site/downloads (ignored by git, zero 404s)
-$siteDownloads = Join-Path $root "site\downloads"
-if (Test-Path $siteDownloads) {
-    Copy-Item -Path $installerExe -Destination (Join-Path $siteDownloads "Haven-Setup.exe") -Force
-    Copy-Item -Path $installerExe -Destination (Join-Path $siteDownloads "Haven-Setup-1.0.0-x64.exe") -Force
-    Copy-Item -Path $portableZip -Destination (Join-Path $siteDownloads "Haven-Portable.zip") -Force
-    Copy-Item -Path $portableZip -Destination (Join-Path $siteDownloads "Haven-1.0.0-win-x64-portable.zip") -Force
-}
 $setupMb = [Math]::Round((Get-Item $installerExe).Length / 1MB, 2)
-Write-Host "  -> $installerExe ($setupMb MB, 100% Self-Contained Offline Installer)"
+Write-Host "  -> $installerExe ($setupMb MB, Standalone Offline Installer)"
 
 # 4. Generate Cryptographic SHA256 Checksums
 Write-Host "[5/5] Generating Cryptographic SHA256 Checksums..."

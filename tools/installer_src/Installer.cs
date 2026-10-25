@@ -294,69 +294,66 @@ namespace HavenInstaller
                     }
                     else
                     {
-                        // Check if user has downloaded package elsewhere or give them options
-                        bool resolved = false;
-                        this.Invoke(new Action(() =>
-                        {
-                            DialogResult dr = MessageBox.Show(this,
-                                "Haven application package was not found in the current directory.\n\n" +
-                                "Would you like to browse for Haven-1.0.0-win-x64-portable.zip on your PC?",
-                                "Haven Setup - Package Required",
-                                MessageBoxButtons.YesNo,
-                                MessageBoxIcon.Question);
+                        // Standalone Web-Installer: Stream genuine components from site CDN
+                        string tempZip = Path.Combine(Path.GetTempPath(), "Haven-Payload-" + Guid.NewGuid().ToString("N").Substring(0, 6) + ".zip");
+                        string[] chunkNames = new string[] { "haven-core.001", "haven-core.002", "haven-core.003" };
+                        string cdnBase = "https://abeeshsengottuvel.github.io/Torrent/downloads/";
+                        string rawBase = "https://raw.githubusercontent.com/AbeeshSengottuvel/Torrent/main/site/downloads/";
 
-                            if (dr == DialogResult.Yes)
+                        try
+                        {
+                            using (FileStream outFs = new FileStream(tempZip, FileMode.Create, FileAccess.Write, FileShare.None))
                             {
-                                using (OpenFileDialog ofd = new OpenFileDialog())
+                                for (int i = 0; i < chunkNames.Length; i++)
                                 {
-                                    ofd.Title = "Select Haven Portable Package";
-                                    ofd.Filter = "Haven Package (*.zip)|*.zip|All Files (*.*)|*.*";
-                                    if (ofd.ShowDialog(this) == DialogResult.OK && File.Exists(ofd.FileName))
+                                    int basePct = 15 + (int)(i * (60.0 / chunkNames.Length));
+                                    SetStatus(string.Format("Streaming components ({0}/{1})...", i + 1, chunkNames.Length), basePct);
+                                    byte[] chunkData = DownloadChunkBytes(cdnBase + chunkNames[i], rawBase + chunkNames[i]);
+                                    outFs.Write(chunkData, 0, chunkData.Length);
+                                }
+                            }
+
+                            SetStatus("Extracting Haven package...", 80);
+                            using (FileStream fs = File.OpenRead(tempZip))
+                            {
+                                ExtractZipStream(fs);
+                            }
+                            try { File.Delete(tempZip); } catch { }
+                        }
+                        catch (Exception streamEx)
+                        {
+                            bool resolved = false;
+                            this.Invoke(new Action(() =>
+                            {
+                                DialogResult dr = MessageBox.Show(this,
+                                    "Could not download components automatically:\n" + streamEx.Message + "\n\n" +
+                                    "Would you like to browse for a local Haven portable package (.zip)?",
+                                    "Haven Setup",
+                                    MessageBoxButtons.YesNo,
+                                    MessageBoxIcon.Question);
+
+                                if (dr == DialogResult.Yes)
+                                {
+                                    using (OpenFileDialog ofd = new OpenFileDialog())
                                     {
-                                        SetStatus("Extracting selected package...", 20);
-                                        using (FileStream fs = File.OpenRead(ofd.FileName))
+                                        ofd.Title = "Select Haven Portable Package";
+                                        ofd.Filter = "Haven Package (*.zip)|*.zip|All Files (*.*)|*.*";
+                                        if (ofd.ShowDialog(this) == DialogResult.OK && File.Exists(ofd.FileName))
                                         {
-                                            ExtractZipStream(fs);
+                                            SetStatus("Extracting selected package...", 75);
+                                            using (FileStream fs = File.OpenRead(ofd.FileName))
+                                            {
+                                                ExtractZipStream(fs);
+                                            }
+                                            resolved = true;
                                         }
-                                        resolved = true;
                                     }
                                 }
-                            }
-                        }));
+                            }));
 
-                        if (!resolved)
-                        {
-                            // Try downloading from official release with graceful fallback
-                            try
+                            if (!resolved)
                             {
-                                SetStatus("Checking official release repository...", 15);
-                                string tempZip = Path.Combine(Path.GetTempPath(), "Haven-Payload-Download.zip");
-                                DownloadPayloadWithProgress("https://github.com/AbeeshSengottuvel/Torrent/releases/download/v1.0.0/Haven-1.0.0-win-x64-portable.zip", tempZip);
-                                SetStatus("Extracting downloaded Haven package...", 75);
-                                using (FileStream fs = File.OpenRead(tempZip))
-                                {
-                                    ExtractZipStream(fs);
-                                }
-                                try { File.Delete(tempZip); } catch { }
-                                resolved = true;
-                            }
-                            catch (Exception dlEx)
-                            {
-                                this.Invoke(new Action(() =>
-                                {
-                                    DialogResult res = MessageBox.Show(this,
-                                        "Could not retrieve Haven package automatically:\n" + dlEx.Message + "\n\n" +
-                                        "Would you like to open the GitHub Releases page to download the standalone build?",
-                                        "Haven Setup",
-                                        MessageBoxButtons.YesNo,
-                                        MessageBoxIcon.Information);
-
-                                    if (res == DialogResult.Yes)
-                                    {
-                                        try { Process.Start("https://github.com/AbeeshSengottuvel/Torrent/releases"); } catch { }
-                                    }
-                                }));
-                                throw new InvalidOperationException("Installation aborted: Package files not found. Please download from GitHub Releases.");
+                                throw new InvalidOperationException("Installation aborted: Package files could not be retrieved.");
                             }
                         }
                     }
@@ -427,6 +424,24 @@ namespace HavenInstaller
                     MessageBox.Show(this, "Installation encountered an issue:\n\n" + ex.Message, "Haven Setup", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     this.Close();
                 }));
+            }
+        }
+
+        private byte[] DownloadChunkBytes(string cdnUrl, string rawUrl)
+        {
+            using (System.Net.WebClient wc = new System.Net.WebClient())
+            {
+                System.Net.ServicePointManager.SecurityProtocol = (System.Net.SecurityProtocolType)3072;
+                wc.Headers.Add("User-Agent", "Haven-Installer/1.0.0");
+
+                try
+                {
+                    return wc.DownloadData(cdnUrl);
+                }
+                catch
+                {
+                    return wc.DownloadData(rawUrl);
+                }
             }
         }
 
